@@ -1,0 +1,3 @@
+[submodule "PersuasionNLPTools"]
+	path = PersuasionNLPTools
+	url = https://github.com/jacxhanx/PersuasionNLPTools.git
