@@ -1,19 +1,15 @@
 import json
-import pandas as pd
 from itertools import chain
-from networkx import DiGraph
 from pathlib import Path
-from PersuasionNLPTools.config import VALID_LABELS
 
-LANGUAGE_SETS = {
-    "shared_task": ["bg", "hr", "pl", "sl", "ru"],  # primary languages
-    "slavic": ["bg", "hr", "mk", "pl", "sl", "ru"],  # add Macedonian (close to Bulgarian)
-    "slavic_en": ["bg", "en", "hr", "mk", "pl", "sl", "ru"],  # add English
-    "european_latin": ["bg", "de", "en", "es", "fr", "it", "hr", "mk", "pl", "sl", "ru",],  # add European languages using the Latin alphabet
-    "parlamint": ["bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "sl", "ru"],  # add Greek
-    "european": ["bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "sl", "ru"],  # add Georgian
-    "all": ["ar", "bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "sl", "ru"],  # add Arabic
-}
+import networkx as nx
+import pandas as pd
+from datasets import Dataset, DatasetDict
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MultiLabelBinarizer
+
+from PersuasionNLPTools.config import VALID_LABELS
+from utils import LANGUAGE_SETS
 
 LABEL_MAP = {
     "Appeal to authority": "Appeal_to_Authority",
@@ -42,44 +38,46 @@ GLOBAL_DATA_PATH = Path("./data/")
 
 
 def get_hierarchy() -> nx.DiGraph:
-    G = DiGraph()
-    G.add_edge("Persuation", "Logos")
+    G = nx.DiGraph()
+    G.add_edge("Persuasion", "Logos")
     G.add_edge("Logos", "Repetition")
     G.add_edge("Logos", "Obfuscation-Vagueness-Confusion")
     G.add_edge("Logos", "Reasoning")
     G.add_edge("Logos", "Justification")
-    G.add_edge('Justification', "Slogans")
-    G.add_edge('Justification', "Appeal_to_Popularity")
-    G.add_edge('Justification', "Appeal_to_Authority")
-    G.add_edge('Justification', "Flag_Waving")
-    G.add_edge('Justification', "Appeal_to_Fear-Prejudice")
-    G.add_edge('Reasoning', "Simplification")
-    G.add_edge('Simplification', "Causal_Oversimplification")
-    G.add_edge('Simplification', "False_Dilemma-No_Choice")
-    G.add_edge('Simplification', "Conversation_Killer")
-    G.add_edge('Simplification', "Consequential_Oversimplification")
-    G.add_edge('Simplification', "False_Equivalence")
-    G.add_edge('Reasoning', "Distraction")
-    G.add_edge('Distraction', "Straw_Man")
-    G.add_edge('Distraction', "Red_Herring")
-    G.add_edge('Distraction', "Whataboutism")
-    G.add_edge("Persuation", "Ethos")
-    G.add_edge('Ethos', "Appeal_to_Authority")
-    G.add_edge('Ethos', "Appeal_to_Values")
-    G.add_edge('Ethos', "Appeal_to_Popularity")
-    G.add_edge('Ethos', "Ad Hominem")
-    G.add_edge('Ad Hominem', "Doubt")
-    G.add_edge('Ad Hominem', "Name_Calling-Labeling")
-    G.add_edge('Ad Hominem', "Questioning_the_Reputation")
-    G.add_edge('Ad Hominem', "Guilt_by_Association")
-    G.add_edge('Ad Hominem', "Appeal_to_Hypocrisy")
-    G.add_edge('Ad Hominem', "Whataboutism")
-    G.add_edge("Persuation", "Pathos")
-    G.add_edge('Pathos', "Exaggeration-Minimisation")
-    G.add_edge('Pathos', "Loaded_Language")
-    G.add_edge('Pathos', "Appeal_to_Fear-Prejudice")
-    G.add_edge('Pathos', "Flag_Waving")
-    G.add_edge("Persuation", "Appeal_to_Time")  # "Kairos", the 4th mode of persuation
+    G.add_edge("Justification", "Slogans")
+    G.add_edge("Justification", "Appeal_to_Popularity")
+    G.add_edge("Justification", "Appeal_to_Authority")
+    G.add_edge("Justification", "Flag_Waving")
+    G.add_edge("Justification", "Appeal_to_Fear-Prejudice")
+    G.add_edge("Reasoning", "Simplification")
+    G.add_edge("Simplification", "Causal_Oversimplification")
+    G.add_edge("Simplification", "False_Dilemma-No_Choice")
+    G.add_edge("Simplification", "Conversation_Killer")
+    G.add_edge("Simplification", "Consequential_Oversimplification")
+    G.add_edge("Simplification", "False_Equivalence")  # new label
+    G.add_edge("Reasoning", "Distraction")
+    G.add_edge("Distraction", "Straw_Man")
+    G.add_edge("Distraction", "Red_Herring")
+    G.add_edge("Distraction", "Whataboutism")
+    G.add_edge("Distraction", "Appeal_to_Pity")  # "Appeal to Emotion" in SemEval 2024
+    G.add_edge("Persuasion", "Ethos")
+    G.add_edge("Ethos", "Appeal_to_Authority")
+    G.add_edge("Ethos", "Appeal_to_Values")
+    G.add_edge("Ethos", "Appeal_to_Popularity")
+    G.add_edge("Ethos", "Ad Hominem")
+    G.add_edge("Ad Hominem", "Doubt")
+    G.add_edge("Ad Hominem", "Name_Calling-Labeling")
+    G.add_edge("Ad Hominem", "Questioning_the_Reputation")
+    G.add_edge("Ad Hominem", "Guilt_by_Association")
+    G.add_edge("Ad Hominem", "Appeal_to_Hypocrisy")
+    G.add_edge("Ad Hominem", "Whataboutism")
+    G.add_edge("Persuasion", "Pathos")
+    G.add_edge("Pathos", "Exaggeration-Minimisation")
+    G.add_edge("Pathos", "Loaded_Language")
+    G.add_edge("Pathos", "Appeal_to_Fear-Prejudice")
+    G.add_edge("Pathos", "Flag_Waving")
+    G.add_edge("Pathos", "Appeal_to_Pity")  # "Appeal to Emotion" in SemEval 2024
+    G.add_edge("Persuasion", "Appeal_to_Time")  # "Kairos", the 4th mode of persuation
     return G
 
 
@@ -145,12 +143,14 @@ def load_semeval_2023_task_3_subtask_3(languages: list[str], include_test: bool 
                 train_text = [line.split("\t")[-1].strip() for line in f.readlines()]
             with train_labels_path.open("r", encoding="utf-8") as f:
                 train_labels = [line.split("\t")[-1].strip().split(",") for line in f.readlines()]
+                train_labels = list(map(lambda l: l if l != [""] else [], train_labels))
             records.extend([{"text": tup[0], "labels": tup[1]} for tup in zip(train_text, train_labels)])
 
             with dev_text_path.open("r", encoding="utf-8") as f:
                 dev_text = [line.split("\t")[-1].strip() for line in f.readlines()]
             with dev_labels_path.open("r", encoding="utf-8") as f:
                 dev_labels = [line.split("\t")[-1].strip().split(",") for line in f.readlines()]
+                dev_labels = list(map(lambda l: l if l != [""] else [], dev_labels))
             records.extend([{"text": tup[0], "labels": tup[1]} for tup in zip(dev_text, dev_labels)])
 
         if include_test:
@@ -275,14 +275,14 @@ def load_clef_2024_task_3(languages: list[str], include_dev: bool = False):
     return pd.DataFrame(columns=["text", "labels"])
 
 
-def load_slavicnlp_train() -> pd.DataFrame:
+def load_slavicnlp_2025() -> pd.DataFrame:
     """
     Load the training data from the Slavic NLP 2025 Shared Task.
     https://bsnlp.cs.helsinki.fi/shared-task.html
 
     The training data are labeled and include languages: BG, PL, RU, SL
     """
-    data_path = GLOBAL_DATA_PATH / "TRAIN_version_21_February_2025"
+    data_path = GLOBAL_DATA_PATH / "TRAIN_version_31_March_2025"
     records = []
 
     for lang in ["BG", "PL", "RU", "SL"]:
@@ -315,7 +315,7 @@ def load_slavicnlp_train() -> pd.DataFrame:
             file_records = [
                 {
                     "language": lang,
-                    "file": file,
+                    "doc": file,
                     "start": file_offsets[i][1],
                     "end": file_offsets[i][2],
                     "text": paragraphs[i],
@@ -326,10 +326,34 @@ def load_slavicnlp_train() -> pd.DataFrame:
 
             records.extend(file_records)
 
-    return pd.DataFrame.from_records(records)
+    df = pd.DataFrame.from_records(records)
+    df["start"] = df["start"].astype(int)
+    df["end"] = df["end"].astype(int)
+
+    return df
 
 
-def load_merge_encode(args) -> tuple[pd.DataFrame, pd.DataFrame]:
+def add_ancestors(df: pd.DataFrame, G: nx.DiGraph) -> pd.DataFrame:
+    """
+    Add the ancestors of all annotated labels.
+    """
+    df["labels"] = df["labels"].map(
+        lambda labels: sorted(set(chain.from_iterable([nx.ancestors(G, node) for node in labels] + [labels])))
+    )
+    return df
+
+
+def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[pd.DataFrame, MultiLabelBinarizer]:
+    """
+    Binary-encode the labels in a loaded dataframe for model training.
+    """
+    encoder = MultiLabelBinarizer()
+    encoder.fit([labels])
+    df["labels"] = df["labels"].map(lambda l: encoder.transform([l])[0])
+    return df, encoder
+
+
+def load_merge_encode(args) -> DatasetDict:
     languages = LANGUAGE_SETS[args.languages]
 
     train_funcs = [
@@ -341,8 +365,42 @@ def load_merge_encode(args) -> tuple[pd.DataFrame, pd.DataFrame]:
         train_funcs.append(load_clef_2024_task_3)
 
     train_df = pd.concat([func(languages) for func in train_funcs])
-    test_df = load_slavicnlp_train()
+    test_df = load_slavicnlp_2025()
 
-    test_labels = sorted(set(chain.from_iterable(test_df["labels"])))
+    # TODO: include machine translations
 
-    # TODO: include hierarchy
+    # Binary encode labels
+    encoder = MultiLabelBinarizer()
+
+    if args.disable_hierarchy:
+        encoder.fit([VALID_LABELS])
+    else:
+        G = get_hierarchy()
+        encoder.fit([G.nodes])
+        train_df = add_ancestors(train_df, G)
+        test_df = add_ancestors(test_df, G)
+
+    train_df["labels"] = train_df["labels"].map(lambda l: encoder.transform([l])[0])
+    test_df["labels"] = test_df["labels"].map(lambda l: encoder.transform([l])[0])
+
+    # Split dataset
+    train_df, val_df = train_test_split(train_df, random_state=0, test_size=args.val_size)
+
+    dataset = DatasetDict({
+        "train": Dataset.from_pandas(train_df),
+        "val": Dataset.from_pandas(val_df),
+        "test": Dataset.from_pandas(test_df),
+        "encoder": encoder,
+    })
+
+    return dataset
+
+
+if __name__ == "__main__":
+    G = get_hierarchy()
+    assert VALID_LABELS.issubset(G.nodes)
+
+    df = load_slavicnlp_2025()
+    df = add_ancestors(df, G)
+    df = encode_labels(df, G.nodes)
+    print(df)
