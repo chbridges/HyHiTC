@@ -1,10 +1,4 @@
-./data/clef-2024-task-3
-./data/ptc
-./data/semeval-2021-task-6
-./data/semeval-2023-task-3
-./data/semeval-2024-task-4
-./data/TRAIN_version_21_February_2025
-./data/TRIAL-ANNOTATED
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
