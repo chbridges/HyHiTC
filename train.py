@@ -1,8 +1,7 @@
 from datetime import datetime
 
-import evaluate
-import numpy as np
 import torch
+from torchmetrics.classification import MultilabelF1Score
 from transformers import DataCollatorWithPadding, Trainer, TrainingArguments, enable_full_determinism
 
 from dataloading import load_merge_encode
@@ -10,11 +9,17 @@ from models import Model
 from utils import parse_args
 
 
-def compute_metrics(eval_pred):
-    metrics = evaluate.combine(["f1", "precision", "recall"])
-    preds, labels = eval_pred
-    preds = np.argmax(preds, axis=1)
-    metrics.compute(predictions=preds, references=labels)
+def make_multilabel_metrics(num_classes: int):
+    metrics = {
+        "micro_f1": MultilabelF1Score(num_classes, average="micro"),
+        "macro_f1": MultilabelF1Score(num_classes, average="macro"),
+    }
+
+    def compute_metrics(eval_pred):
+        logits, labels = eval_pred
+        return {name: metric(torch.Tensor(logits), torch.Tensor(labels)) for name, metric in metrics.items()}
+
+    return compute_metrics
 
 
 enable_full_determinism(seed=0)
@@ -54,7 +59,7 @@ trainer = Trainer(
     train_dataset=dataset["train"],
     eval_dataset=dataset["val"],
     processing_class=model.tokenizer,
-    compute_metrics=compute_metrics,
+    compute_metrics=make_multilabel_metrics(len(dataset.encoder.classes_)),
 )
 
 trainer.train()
