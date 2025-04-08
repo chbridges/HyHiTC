@@ -353,7 +353,7 @@ def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[
     return df, encoder
 
 
-def load_merge_encode(args) -> DatasetDict:
+def load_merge_encode(args) -> tuple[DatasetDict, MultiLabelBinarizer]:
     languages = LANGUAGE_SETS[args.languages]
 
     train_funcs = [
@@ -370,18 +370,18 @@ def load_merge_encode(args) -> DatasetDict:
     # TODO: include machine translations
 
     # Binary encode labels
-    encoder = MultiLabelBinarizer()
+    binarizer = MultiLabelBinarizer()
 
     if args.disable_hierarchy:
-        encoder.fit([VALID_LABELS])
+        binarizer.fit([VALID_LABELS])
     else:
         G = get_hierarchy()
-        encoder.fit([G.nodes])
+        binarizer.fit([G.nodes])
         train_df = add_ancestors(train_df, G)
         test_df = add_ancestors(test_df, G)
 
-    train_df["labels"] = train_df["labels"].map(lambda l: encoder.transform([l])[0])
-    test_df["labels"] = test_df["labels"].map(lambda l: encoder.transform([l])[0])
+    train_df["labels"] = train_df["labels"].map(lambda l: binarizer.transform([l])[0])
+    test_df["labels"] = test_df["labels"].map(lambda l: binarizer.transform([l])[0])
 
     # Split dataset
     train_df, val_df = train_test_split(train_df, random_state=0, test_size=args.val_size)
@@ -390,10 +390,9 @@ def load_merge_encode(args) -> DatasetDict:
         "train": Dataset.from_pandas(train_df),
         "val": Dataset.from_pandas(val_df),
         "test": Dataset.from_pandas(test_df),
-        "encoder": encoder,
     })
 
-    return dataset
+    return dataset, binarizer
 
 
 if __name__ == "__main__":

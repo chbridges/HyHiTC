@@ -25,11 +25,11 @@ def make_multilabel_metrics(num_classes: int):
 enable_full_determinism(seed=0)
 
 args = parse_args()
-dataset = load_merge_encode(args)
+dataset, binarizer = load_merge_encode(args)
 model = Model(args)
 
-for split in dataset.values():
-    split.map(
+for split in dataset.keys():
+    dataset[split] = dataset[split].map(
         lambda sample: model.tokenizer(sample["text"], padding=True, truncation=True, return_tensors="pt"),
         batched=True,
     )
@@ -40,7 +40,7 @@ training_args = TrainingArguments(
     output_dir=f"{args.model}-{args.gnn}-{datetime.now().strftime('%y%m%d%H%M')}",
     learning_rate=2e-5,
     lr_scheduler_type="cosine",
-    per_device_training_batch_size=16,
+    per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
     num_train_epochs=2,
     weight_decay=0.01,
@@ -59,7 +59,7 @@ trainer = Trainer(
     train_dataset=dataset["train"],
     eval_dataset=dataset["val"],
     processing_class=model.tokenizer,
-    compute_metrics=make_multilabel_metrics(len(dataset.encoder.classes_)),
+    compute_metrics=make_multilabel_metrics(len(binarizer.classes_)),
 )
 
 trainer.train()
