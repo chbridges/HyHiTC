@@ -28,3 +28,9 @@ TC - Given a text fragment identified as propaganda and its document context, id
 Languages: en
 https://propaganda.math.unipd.it/ptc/
 https://propaganda.math.unipd.it/fine-grained-propaganda-emnlp.html
+
+./TRIAL_DATA
+The TRIAL DATA contains some annotated documents and approx. 10-15 additional raw documents. Subset of training data
+
+./TRAIN_version_31_March_2025
+Additional TRAINING DATA in the domain of parliamentary debates in Bulgarian, Polish, Slovene, and social media in Russian (approx 80 documents).
