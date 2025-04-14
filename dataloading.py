@@ -8,77 +8,11 @@ from datasets import Dataset, DatasetDict
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MultiLabelBinarizer
 
+from hierarchy import LABEL_MAP
 from PersuasionNLPTools.config import VALID_LABELS
 from utils import LANGUAGE_SETS
 
-LABEL_MAP = {
-    "Appeal to authority": "Appeal_to_Authority",
-    "Appeal to fear/prejudice": "Appeal_to_Fear-Prejudice",
-    "Bandwagon": "Appeal_to_Popularity",
-    "Glittering generalities (Virtue)": "Appeal_to_Values",
-    "Causal Oversimplification": "Causal_Oversimplification",
-    "Thought-terminating cliché": "Conversation_Killer",
-    "Doubt": "Doubt",
-    "Exaggeration/Minimisation": "Exaggeration-Minimisation",
-    "Black-and-white Fallacy/Dictatorship": "False_Dilemma-No_Choice",
-    "Flag-waving": "Flag_Waving",
-    "Reductio ad hitlerum": "Guilt_by_Association",
-    "Loaded Language": "Loaded_Language",
-    "Name calling/Labeling": "Name_Calling-Labeling",
-    "Obfuscation, Intentional vagueness, Confusion": "Obfuscation-Vagueness-Confusion",
-    "Smears": "Questioning_the_Reputation",
-    "Presenting Irrelevant Data (Red Herring)": "Red_Herring",
-    "Repetition": "Repetition",
-    "Slogans": "Slogans",
-    "Misrepresentation of Someone's Position (Straw Man)": "Straw_Man",
-    "Whataboutism": "Whataboutism",
-}
-
 GLOBAL_DATA_PATH = Path("./data/")
-
-
-def get_hierarchy() -> nx.DiGraph:
-    G = nx.DiGraph()
-    G.add_edge("Persuasion", "Logos")
-    G.add_edge("Logos", "Repetition")
-    G.add_edge("Logos", "Obfuscation-Vagueness-Confusion")
-    G.add_edge("Logos", "Reasoning")
-    G.add_edge("Logos", "Justification")
-    G.add_edge("Justification", "Slogans")
-    G.add_edge("Justification", "Appeal_to_Popularity")
-    G.add_edge("Justification", "Appeal_to_Authority")
-    G.add_edge("Justification", "Flag_Waving")
-    G.add_edge("Justification", "Appeal_to_Fear-Prejudice")
-    G.add_edge("Reasoning", "Simplification")
-    G.add_edge("Simplification", "Causal_Oversimplification")
-    G.add_edge("Simplification", "False_Dilemma-No_Choice")
-    G.add_edge("Simplification", "Conversation_Killer")
-    G.add_edge("Simplification", "Consequential_Oversimplification")
-    G.add_edge("Simplification", "False_Equivalence")  # new label
-    G.add_edge("Reasoning", "Distraction")
-    G.add_edge("Distraction", "Straw_Man")
-    G.add_edge("Distraction", "Red_Herring")
-    G.add_edge("Distraction", "Whataboutism")
-    G.add_edge("Distraction", "Appeal_to_Pity")  # "Appeal to Emotion" in SemEval 2024
-    G.add_edge("Persuasion", "Ethos")
-    G.add_edge("Ethos", "Appeal_to_Authority")
-    G.add_edge("Ethos", "Appeal_to_Values")
-    G.add_edge("Ethos", "Appeal_to_Popularity")
-    G.add_edge("Ethos", "Ad Hominem")
-    G.add_edge("Ad Hominem", "Doubt")
-    G.add_edge("Ad Hominem", "Name_Calling-Labeling")
-    G.add_edge("Ad Hominem", "Questioning_the_Reputation")
-    G.add_edge("Ad Hominem", "Guilt_by_Association")
-    G.add_edge("Ad Hominem", "Appeal_to_Hypocrisy")
-    G.add_edge("Ad Hominem", "Whataboutism")
-    G.add_edge("Persuasion", "Pathos")
-    G.add_edge("Pathos", "Exaggeration-Minimisation")
-    G.add_edge("Pathos", "Loaded_Language")
-    G.add_edge("Pathos", "Appeal_to_Fear-Prejudice")
-    G.add_edge("Pathos", "Flag_Waving")
-    G.add_edge("Pathos", "Appeal_to_Pity")  # "Appeal to Emotion" in SemEval 2024
-    G.add_edge("Persuasion", "Appeal_to_Time")  # "Kairos", the 4th mode of persuation
-    return G
 
 
 def load_semeval_2021_task_6_subtask_1(languages: list[str]) -> pd.DataFrame:
@@ -333,7 +267,7 @@ def load_slavicnlp_2025() -> pd.DataFrame:
     return df
 
 
-def add_ancestors(df: pd.DataFrame, G: nx.DiGraph) -> pd.DataFrame:
+def add_ancestors(df: pd.DataFrame, G: Optional[nx.DiGraph] = None) -> pd.DataFrame:
     """
     Add the ancestors of all annotated labels.
     """
@@ -353,7 +287,7 @@ def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[
     return df, encoder
 
 
-def load_merge_encode(args) -> tuple[DatasetDict, MultiLabelBinarizer]:
+def load_merge_encode(args, G: nx.DiGraph) -> tuple[DatasetDict, MultiLabelBinarizer]:
     languages = LANGUAGE_SETS[args.languages]
 
     train_funcs = [
@@ -372,13 +306,12 @@ def load_merge_encode(args) -> tuple[DatasetDict, MultiLabelBinarizer]:
     # Binary encode labels
     binarizer = MultiLabelBinarizer()
 
-    if args.disable_hierarchy:
-        binarizer.fit([VALID_LABELS])
-    else:
-        G = get_hierarchy()
+    if G:
         binarizer.fit([G.nodes])
         train_df = add_ancestors(train_df, G)
         test_df = add_ancestors(test_df, G)
+    else:
+        binarizer.fit([VALID_LABELS])
 
     train_df["labels"] = train_df["labels"].map(lambda l: binarizer.transform([l])[0])
     test_df["labels"] = test_df["labels"].map(lambda l: binarizer.transform([l])[0])
@@ -386,11 +319,13 @@ def load_merge_encode(args) -> tuple[DatasetDict, MultiLabelBinarizer]:
     # Split dataset
     train_df, val_df = train_test_split(train_df, random_state=0, test_size=args.val_size)
 
-    dataset = DatasetDict({
-        "train": Dataset.from_pandas(train_df),
-        "val": Dataset.from_pandas(val_df),
-        "test": Dataset.from_pandas(test_df),
-    })
+    dataset = DatasetDict(
+        {
+            "train": Dataset.from_pandas(train_df),
+            "val": Dataset.from_pandas(val_df),
+            "test": Dataset.from_pandas(test_df),
+        }
+    )
 
     return dataset, binarizer
 
