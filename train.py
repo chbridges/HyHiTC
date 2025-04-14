@@ -65,7 +65,7 @@ match args.hierarchy:
     case _:
         G = None
 
-dataset, binarizer = load_merge_encode(args, G)
+dataset, binarizer = load_merge_encode(args, LANGUAGE_SETS[args.languages], G)
 
 config = XLMRobertaConfig.from_pretrained(args.model, num_labels=len(binarizer.classes_))
 model = MultilabelModel(args, config, G)

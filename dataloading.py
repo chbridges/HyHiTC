@@ -10,7 +10,6 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from hierarchy import LABEL_MAP
 from PersuasionNLPTools.config import VALID_LABELS
-from utils import LANGUAGE_SETS
 
 GLOBAL_DATA_PATH = Path("./data/")
 
@@ -287,9 +286,7 @@ def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[
     return df, encoder
 
 
-def load_merge_encode(args, G: nx.DiGraph) -> tuple[DatasetDict, MultiLabelBinarizer]:
-    languages = LANGUAGE_SETS[args.languages]
-
+def load_merge_encode(args, languages: list[str], G: nx.DiGraph) -> tuple[DatasetDict, MultiLabelBinarizer]:
     train_funcs = [
         load_semeval_2021_task_6_subtask_1,  # en only
         load_semeval_2023_task_3_subtask_3,
