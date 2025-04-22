@@ -29,12 +29,16 @@ LANGUAGE_SETS = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="slavic")
+    parser.add_argument("--debug", "-d", action="store_true")
+    parser.add_argument("--epochs", "-e", type=int, default=10)
+    parser.add_argument("--gnn", "-g", choices=["gcn", "gat", "hgcn"], default="gcn")
+    parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--include_clef", "-ic", action="store_true")
-    parser.add_argument("--disable_hierarchy", "-dh", action="store_true")
-    parser.add_argument("--val_size", "-v", type=float, default=0.2)
+    parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="slavic")
     parser.add_argument("--model", "-m", default="classla/xlm-r-parla")
-    parser.add_argument("--gnn", "-g", choices=["GCN", "GAT", "HGCN"])
+    parser.add_argument("--node_classification", "-nc", action="store_true")
+    parser.add_argument("--node_size", "-ns", type=int, default=8)
+    parser.add_argument("--val_size", "-v", type=float, default=0.2)
     return parser.parse_args()
 
 
@@ -67,6 +71,10 @@ match args.hierarchy:
 
 dataset, binarizer = load_merge_encode(args, LANGUAGE_SETS[args.languages], G)
 
+if args.debug:
+    for split in dataset.keys():
+        dataset[split] = dataset[split].shard(num_shards=10, index=1)
+
 config = XLMRobertaConfig.from_pretrained(args.model, num_labels=len(binarizer.classes_))
 model = MultilabelModel(args, config, G)
 tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.model)
@@ -78,13 +86,18 @@ for split in dataset.keys():
         batched=True,
     )
 
+if args.hierarchy:
+    output_stem = f"{args.model}-{args.hierarchy}-{args.gnn}"
+else:
+    output_stem = f"{args.model}-flat"
+
 training_args = TrainingArguments(
-    output_dir=f"{args.model}-{args.gnn}-{datetime.now().strftime('%y%m%d%H%M')}",
+    output_dir=f"{output_stem}-{datetime.now().strftime('%y%m%d%H%M')}",
+    num_train_epochs=args.epochs,
     learning_rate=2e-5,
     lr_scheduler_type="cosine",
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
-    num_train_epochs=2,
     weight_decay=0.01,
     eval_strategy="epoch",
     save_strategy="epoch",
@@ -105,3 +118,6 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+results = trainer.evaluate(dataset["train"])
+print(results)
