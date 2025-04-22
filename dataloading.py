@@ -1,6 +1,7 @@
 import json
 from itertools import chain
 from pathlib import Path
+from typing import Optional
 
 import networkx as nx
 import pandas as pd
@@ -208,7 +209,7 @@ def load_clef_2024_task_3(languages: list[str], include_dev: bool = False):
     return pd.DataFrame(columns=["text", "labels"])
 
 
-def load_slavicnlp_2025() -> pd.DataFrame:
+def load_slavicnlp_2025(languages: list[str]) -> pd.DataFrame:
     """
     Load the training data from the Slavic NLP 2025 Shared Task.
     https://bsnlp.cs.helsinki.fi/shared-task.html
@@ -296,7 +297,7 @@ def load_merge_encode(args, languages: list[str], G: nx.DiGraph) -> tuple[Datase
         train_funcs.append(load_clef_2024_task_3)
 
     train_df = pd.concat([func(languages) for func in train_funcs])
-    test_df = load_slavicnlp_2025()
+    test_df = load_slavicnlp_2025(languages)
 
     # TODO: include machine translations
 
@@ -328,10 +329,7 @@ def load_merge_encode(args, languages: list[str], G: nx.DiGraph) -> tuple[Datase
 
 
 if __name__ == "__main__":
-    G = get_hierarchy()
-    assert VALID_LABELS.issubset(G.nodes)
+    from hierarchy import create_full_hierarchy
 
-    df = load_slavicnlp_2025()
-    df = add_ancestors(df, G)
-    df = encode_labels(df, G.nodes)
-    print(df)
+    G = create_full_hierarchy()
+    assert VALID_LABELS.issubset(G.nodes)
