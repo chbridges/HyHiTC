@@ -5,14 +5,14 @@ import torch
 from torch import nn
 from torch_geometric import nn as gnn
 from torch_geometric.utils.convert import from_networkx
-from transformers import RobertaPreTrainedModel, XLMRobertaModel
+from transformers import XLMRobertaModel, XLMRobertaPreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
-from transformers.models.roberta.modeling_roberta import RobertaClassificationHead
+from transformers.models.xlm_roberta.modeling_xlm_roberta import XLMRobertaClassificationHead
 
 GNN = {"gcn": gnn.GCNConv}
 
 
-class MultilabelModel(RobertaPreTrainedModel):
+class MultilabelModel(XLMRobertaPreTrainedModel):
     """Largely based on the official RobertaForSequenceClassification implementation."""
 
     def __init__(self, args, config, hierarchy: Optional[nx.DiGraph] = None) -> None:
@@ -20,17 +20,28 @@ class MultilabelModel(RobertaPreTrainedModel):
         self.config = config
         self.loss_fct = nn.BCEWithLogitsLoss()
         self.hierarchy = hierarchy
+        self.node_classification = args.node_classification
+        self.node_size = args.node_size
+        self.output_size = 1 if args.node_classification else args.node_size
 
         self.roberta = XLMRobertaModel(config)
 
         # Insert GNN between LM and classification head
         if hierarchy:
-            self.edge_index = from_networkx(hierarchy)
-            self.projection = nn.Linear(config.hidden_size, config.num_labels * args.node_size)
+            self.edge_index = from_networkx(hierarchy).edge_index
+            self.pooler = nn.Sequential(
+                nn.Dropout(config.hidden_dropout_prob),
+                nn.Linear(config.hidden_size, config.hidden_size),
+                nn.Tanh(),
+                nn.Dropout(config.hidden_dropout_prob),
+            )  # inspired by XLMRobertaClassificationHead (pooler with added dropout)
             self.dropout = nn.Dropout(config.hidden_dropout_prob)
-            self.gconv = GNN[args.gnn](config.num_labels * args.node_size, config.num_labels)
-
-        self.classifier = RobertaClassificationHead(config)
+            self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_size)
+            self.gconv_fwd = GNN[args.gnn](self.node_size, self.output_size)
+            self.gconv_bwd = GNN[args.gnn](self.node_size, self.output_size)
+            self.out_proj = nn.Linear(config.num_labels * self.node_size, config.num_labels)
+        else:
+            self.classifier = XLMRobertaClassificationHead(config)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -65,9 +76,19 @@ class MultilabelModel(RobertaPreTrainedModel):
 
         # Pass outputs through GNN
         if self.hierarchy:
-            projected = self.dropout(self.projection(sequence_output))
-            convolved = self.gconv(projected)
-            logits = self.classifier(convolved)
+            self.edge_index = self.edge_index.to(sequence_output.device)
+            pooled = self.pooler(sequence_output[:, 0, :])
+            projected = self.dropout(self.projection(pooled))
+            projected = projected.view(projected.shape[0], self.config.num_labels, -1)
+            fwd = self.dropout(self.gconv_fwd(projected, self.edge_index))
+            bwd = self.dropout(self.gconv_bwd(projected, self.edge_index))
+            convolved = fwd + bwd
+            if self.node_classification:
+                logits = convolved  # no activation in output layer
+            else:
+                convolved = torch.relu(convolved)
+                convolved = convolved.view(convolved.shape[0], self.config.num_labels * self.node_size)
+                logits = self.out_proj(convolved)
         else:
             logits = self.classifier(sequence_output)
 
