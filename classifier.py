@@ -9,10 +9,10 @@ from transformers import XLMRobertaModel, XLMRobertaPreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.xlm_roberta.modeling_xlm_roberta import XLMRobertaClassificationHead
 
-GNN = {"gcn": gnn.GCNConv}
+GNN = {"gcn": gnn.GCNConv, "gat": gnn.GATConv}
 
 
-class MultilabelModel(XLMRobertaPreTrainedModel):
+class HieRoberta(XLMRobertaPreTrainedModel):
     """Largely based on the official RobertaForSequenceClassification implementation."""
 
     def __init__(self, args, config, hierarchy: Optional[nx.DiGraph] = None) -> None:

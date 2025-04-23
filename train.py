@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 
 import torch
+from geoopt.optim import RiemannianAdam
 from torchmetrics.classification import BinaryF1Score, MultilabelF1Score
 from transformers import (
     DataCollatorWithPadding,
