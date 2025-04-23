@@ -34,10 +34,11 @@ def parse_args():
     parser.add_argument("--gnn", "-g", choices=["gcn", "gat", "hgcn"], default="gcn")
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--include_clef", "-ic", action="store_true")
-    parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="slavic")
+    parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="european_latin")
     parser.add_argument("--model", "-m", default="classla/xlm-r-parla")
     parser.add_argument("--node_classification", "-nc", action="store_true")
     parser.add_argument("--node_size", "-ns", type=int, default=8)
+    parser.add_argument("--pooling", "-p", action="store_true")
     parser.add_argument("--val_size", "-v", type=float, default=0.2)
     return parser.parse_args()
 
@@ -60,6 +61,18 @@ def make_multilabel_metrics(num_classes: int):
 enable_full_determinism(seed=0)
 
 args = parse_args()
+start_time = datetime.now()
+
+if args.hierarchy:
+    experiment_stem = f"{args.hierarchy}-{args.gnn}"
+else:
+    experiment_stem = "flat"
+experiment_name = f"{experiment_stem}-{args.languages}-{start_time.strftime('%y%m%d%H%M')}"
+
+print("Experiment:", experiment_name)
+for k, v in args.__dict__.items():
+    print(f"{k}:\t{v}")
+print("Start Time:", start_time)
 
 match args.hierarchy:
     case "full":
@@ -86,16 +99,13 @@ for split in dataset.keys():
         batched=True,
     )
 
-if args.hierarchy:
-    output_stem = f"{args.model}-{args.hierarchy}-{args.gnn}"
-else:
-    output_stem = f"{args.model}-flat"
 
 training_args = TrainingArguments(
-    output_dir=f"{output_stem}-{datetime.now().strftime('%y%m%d%H%M')}",
+    output_dir=f"{args.model}-experiment_name",
     num_train_epochs=args.epochs,
     learning_rate=2e-5,
     lr_scheduler_type="cosine",
+    warmup_ratio=1 / args.epochs,  # first epoch
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
     weight_decay=0.01,
@@ -119,5 +129,6 @@ trainer = Trainer(
 
 trainer.train()
 
-results = trainer.evaluate(dataset["train"])
+results = trainer.evaluate(dataset["test"], metric_key_prefix="test")
 print(results)
+print("Total execution time:", datetime.now() - start_time)
