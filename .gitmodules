@@ -1,3 +1,6 @@
 [submodule "PersuasionNLPTools"]
 	path = PersuasionNLPTools
-	url = https://github.com/jacxhanx/PersuasionNLPTools.git
+	url = ../../jacxhanx/PersuasionNLPTools.git
+[submodule "HIE"]
+	path = HIE
+	url = ../../marlin-codes/HIE.git
