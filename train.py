@@ -13,9 +13,9 @@ from transformers import (
     enable_full_determinism,
 )
 
+from classifier import HieRoberta
 from dataloading import load_merge_encode
 from hierarchy import create_full_hierarchy, create_taxonomy
-from models import MultilabelModel
 
 LANGUAGE_SETS = {
     "shared_task": ["bg", "hr", "pl", "sl", "ru"],  # primary languages
@@ -32,7 +32,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", "-d", action="store_true")
     parser.add_argument("--epochs", "-e", type=int, default=10)
-    parser.add_argument("--gnn", "-g", choices=["gcn", "gat", "hgcn"], default="gcn")
+    parser.add_argument("--gnn", "-g", choices=["gcn", "gat", "hie"], default="gcn")
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--include_clef", "-ic", action="store_true")
     parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="european_latin")
@@ -68,12 +68,12 @@ if args.hierarchy:
     experiment_stem = f"{args.hierarchy}-{args.gnn}"
 else:
     experiment_stem = "flat"
-experiment_name = f"{experiment_stem}-{args.languages}-{start_time.strftime('%y%m%d%H%M')}"
+experiment_name = f"{args.model}-{experiment_stem}-{args.languages}"  # -{start_time.strftime('%y%m%d%H%M')}"
 
-print("Experiment:", experiment_name)
+print(f"Experiment: {experiment_name}\n")
 for k, v in args.__dict__.items():
     print(f"{k}:\t{v}")
-print("Start Time:", start_time)
+print("\nStart Time:", start_time)
 
 match args.hierarchy:
     case "full":
@@ -86,11 +86,10 @@ match args.hierarchy:
 dataset, binarizer = load_merge_encode(args, LANGUAGE_SETS[args.languages], G)
 
 if args.debug:
-    for split in dataset.keys():
-        dataset[split] = dataset[split].shard(num_shards=10, index=1)
+    dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
 
 config = XLMRobertaConfig.from_pretrained(args.model, num_labels=len(binarizer.classes_))
-model = MultilabelModel(args, config, G)
+model = HieRoberta(args, config, G)
 tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.model)
 data_collator = DataCollatorWithPadding(tokenizer)
 
@@ -100,11 +99,10 @@ for split in dataset.keys():
         batched=True,
     )
 
-
 training_args = TrainingArguments(
-    output_dir=f"{args.model}-experiment_name",
+    output_dir=experiment_name,
     num_train_epochs=args.epochs,
-    learning_rate=2e-5,
+    learning_rate=2e-4,
     lr_scheduler_type="cosine",
     warmup_ratio=1 / args.epochs,  # first epoch
     per_device_train_batch_size=16,
