@@ -156,7 +156,7 @@ def load_clef_2024_task_3(languages: list[str], include_dev: bool = False):
     :type include_dev: bool, optional
     """
 
-    def spans_to_paragraph(lang_path: Path, article_id: str) -> dict[str, str]:
+    def spans_to_paragraph(lang_path: Path, article_id: str) -> list[dict]:
         text_path = lang_path / "train-articles-subtask-3" / f"article{article_id}.txt"
         spans_path = lang_path / "train-labels-subtask-3-spans" / f"article{article_id}-labels-subtask-3.txt"
 
