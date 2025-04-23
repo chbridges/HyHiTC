@@ -3,9 +3,9 @@ requires-python = ">= 3.11"
 
 [tool.black]
 line-length = 120
-extend-exclude = "HIE|PersuasionNLPTools|data"
+extend-exclude = "HIE|PersuasionNLPTools|data|layers|manifolds|models|utils"
 
 [tool.isort]
 profile = "black"
 line_length = 120
-extend_skip = ["HIE", "PersuasionNLPTools", "data"]
+extend_skip = ["HIE", "PersuasionNLPTools", "data", "layers", "manifolds", "models", "utils"]

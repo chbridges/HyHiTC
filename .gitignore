@@ -1,8 +1,12 @@
-classla/
-data/
 HIE/
 PersuasionNLPTools/
-*.sh
+classla/
+data/
+layers/
+manifolds/
+models/
+utils/
+slurm.sh
 *.log
 
 # Byte-compiled / optimized / DLL files
