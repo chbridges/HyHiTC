@@ -23,18 +23,21 @@ class MultilabelModel(XLMRobertaPreTrainedModel):
         self.node_classification = args.node_classification
         self.node_size = args.node_size
         self.output_size = 1 if args.node_classification else args.node_size
+        self.pooling = args.pooling
 
         self.roberta = XLMRobertaModel(config)
 
         # Insert GNN between LM and classification head
         if hierarchy:
-            self.edge_index = from_networkx(hierarchy).edge_index
-            self.pooler = nn.Sequential(
-                nn.Dropout(config.hidden_dropout_prob),
-                nn.Linear(config.hidden_size, config.hidden_size),
-                nn.Tanh(),
-                nn.Dropout(config.hidden_dropout_prob),
-            )  # inspired by XLMRobertaClassificationHead (pooler with added dropout)
+            self.edges_fwd = from_networkx(hierarchy).edge_index
+            self.edges_bwd = from_networkx(hierarchy.reverse()).edge_index
+            if self.pooling:
+                self.pooler = nn.Sequential(
+                    nn.Dropout(config.hidden_dropout_prob),
+                    nn.Linear(config.hidden_size, config.hidden_size),
+                    nn.Tanh(),
+                    nn.Dropout(config.hidden_dropout_prob),
+                )  # inspired by XLMRobertaClassificationHead (pooler with added dropout)
             self.dropout = nn.Dropout(config.hidden_dropout_prob)
             self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_size)
             self.gconv_fwd = GNN[args.gnn](self.node_size, self.output_size)
@@ -76,12 +79,16 @@ class MultilabelModel(XLMRobertaPreTrainedModel):
 
         # Pass outputs through GNN
         if self.hierarchy:
-            self.edge_index = self.edge_index.to(sequence_output.device)
-            pooled = self.pooler(sequence_output[:, 0, :])
+            self.edges_fwd = self.edges_fwd.to(sequence_output.device)
+            self.edges_bwd = self.edges_bwd.to(sequence_output.device)
+            if self.pooling:
+                pooled = self.pooler(sequence_output[:, 0, :])
+            else:
+                pooled = sequence_output[:, 0, :]
             projected = self.dropout(self.projection(pooled))
             projected = projected.view(projected.shape[0], self.config.num_labels, -1)
-            fwd = self.dropout(self.gconv_fwd(projected, self.edge_index))
-            bwd = self.dropout(self.gconv_bwd(projected, self.edge_index))
+            fwd = self.dropout(self.gconv_fwd(projected, self.edges_fwd))
+            bwd = self.dropout(self.gconv_bwd(projected, self.edges_bwd))
             convolved = fwd + bwd
             if self.node_classification:
                 logits = convolved  # no activation in output layer
