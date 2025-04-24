@@ -9,9 +9,9 @@ from transformers import XLMRobertaModel, XLMRobertaPreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.xlm_roberta.modeling_xlm_roberta import XLMRobertaClassificationHead
 
-from models.encoders import HGNN
+from models.encoders import HGCN, HGNN
 
-GNN = {"gcn": gnn.GCNConv, "gat": gnn.GATConv, "hie": HGNN}
+GNN = {"gcn": gnn.GCNConv, "hgcn": HGCN, "hie": HGNN}
 
 
 class HieRoberta(XLMRobertaPreTrainedModel):

@@ -32,13 +32,14 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", "-d", action="store_true")
     parser.add_argument("--epochs", "-e", type=int, default=10)
-    parser.add_argument("--gnn", "-g", choices=["gcn", "gat", "hie"], default="gcn")
+    parser.add_argument("--gnn", "-g", choices=["gcn", "hgcn", "hie"], default="gcn")
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--include_clef", "-ic", action="store_true")
     parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="european_latin")
+    parser.add_argument("--learning_rate", "-lr", type=float, default=2e-5)
     parser.add_argument("--model", "-m", default="classla/xlm-r-parla")
     parser.add_argument("--node_classification", "-nc", action="store_true")
-    parser.add_argument("--node_size", "-ns", type=int, default=8)
+    parser.add_argument("--node_size", "-ns", type=int, default=64)
     parser.add_argument("--pooling", "-p", action="store_true")
     parser.add_argument("--val_size", "-v", type=float, default=0.2)
     return parser.parse_args()
@@ -102,7 +103,7 @@ for split in dataset.keys():
 training_args = TrainingArguments(
     output_dir=experiment_name,
     num_train_epochs=args.epochs,
-    learning_rate=2e-4,
+    learning_rate=args.learning_rate,
     lr_scheduler_type="cosine",
     warmup_ratio=1 / args.epochs,  # first epoch
     per_device_train_batch_size=16,
