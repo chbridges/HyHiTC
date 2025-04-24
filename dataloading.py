@@ -1,4 +1,5 @@
 import json
+import re
 from itertools import chain
 from pathlib import Path
 from typing import Optional
@@ -26,7 +27,7 @@ def load_semeval_2021_task_6_subtask_1(languages: list[str]) -> pd.DataFrame:
     :type languages: list[str]
     """
     if "en" not in languages:
-        return pd.DataFrame(columns=["text", "labels"])
+        return pd.DataFrame(columns=["language", "text", "labels"])
 
     data_path = GLOBAL_DATA_PATH / "semeval-2021-task-6" / "data"
     splits = [
@@ -42,7 +43,8 @@ def load_semeval_2021_task_6_subtask_1(languages: list[str]) -> pd.DataFrame:
                 records.append({"text": record["text"], "labels": [LABEL_MAP[label] for label in record["labels"]]})
 
     df = pd.DataFrame.from_records(records)
-    return df[["text", "labels"]]
+    df["language"] = "en"
+    return df[["language", "text", "labels"]]
 
 
 def load_semeval_2023_task_3_subtask_3(languages: list[str], include_test: bool = False) -> pd.DataFrame:
@@ -78,14 +80,16 @@ def load_semeval_2023_task_3_subtask_3(languages: list[str], include_test: bool 
             with train_labels_path.open("r", encoding="utf-8") as f:
                 train_labels = [line.split("\t")[-1].strip().split(",") for line in f.readlines()]
                 train_labels = list(map(lambda l: l if l != [""] else [], train_labels))
-            records.extend([{"text": tup[0], "labels": tup[1]} for tup in zip(train_text, train_labels)])
+            records.extend(
+                [{"language": lang, "text": tup[0], "labels": tup[1]} for tup in zip(train_text, train_labels)]
+            )
 
             with dev_text_path.open("r", encoding="utf-8") as f:
                 dev_text = [line.split("\t")[-1].strip() for line in f.readlines()]
             with dev_labels_path.open("r", encoding="utf-8") as f:
                 dev_labels = [line.split("\t")[-1].strip().split(",") for line in f.readlines()]
                 dev_labels = list(map(lambda l: l if l != [""] else [], dev_labels))
-            records.extend([{"text": tup[0], "labels": tup[1]} for tup in zip(dev_text, dev_labels)])
+            records.extend([{"language": lang, "text": tup[0], "labels": tup[1]} for tup in zip(dev_text, dev_labels)])
 
         if include_test:
             test_text_path = lang_path / "test-labels-subtask-3.template"
@@ -94,12 +98,14 @@ def load_semeval_2023_task_3_subtask_3(languages: list[str], include_test: bool 
                 test_text = [line.split("\t")[-1].strip() for line in f.readlines()]
             with test_labels_path.open("r", encoding="utf-8") as f:
                 test_labels = [line.split("\t")[-1].strip().split(",") for line in f.readlines()]
-            records.extend([{"text": tup[0], "labels": tup[1]} for tup in zip(test_text, test_labels)])
+            records.extend(
+                [{"language": lang, "text": tup[0], "labels": tup[1]} for tup in zip(test_text, test_labels)]
+            )
 
     if records:
         df = pd.DataFrame.from_records(records)
-        return df[["text", "labels"]]
-    return pd.DataFrame(columns=["text", "labels"])
+        return df
+    return pd.DataFrame(columns=["language", "text", "labels"])
 
 
 def load_semeval_2024_task_4_subtask_1(languages: list[str]):
@@ -130,13 +136,22 @@ def load_semeval_2024_task_4_subtask_1(languages: list[str]):
         splits.extend(en_splits)
 
     for split in splits:
+        lang_match = re.search(r"subtask1_(.+)\.json", str(split))
+        lang = lang_match.groups()[0] if lang_match else "en"
+
         with split.open("r", encoding="utf-8") as f:
             for record in json.load(f):
-                records.append({"text": record["text"], "labels": [LABEL_MAP[label] for label in record["labels"]]})
+                records.append(
+                    {
+                        "language": lang,
+                        "text": record["text"],
+                        "labels": [LABEL_MAP[label] for label in record["labels"]],
+                    }
+                )
     if records:
         df = pd.DataFrame.from_records(records)
-        return df[["text", "labels"]]
-    return pd.DataFrame(columns=["text", "labels"])
+        return df
+    return pd.DataFrame(columns=["language", "text", "labels"])
 
 
 def load_clef_2024_task_3(languages: list[str], include_dev: bool = False):
@@ -185,7 +200,7 @@ def load_clef_2024_task_3(languages: list[str], include_dev: bool = False):
                     labels[key].append(label)
                     break
 
-        return [{"text": paragraphs[i], "labels": sorted(set(labels[i]))} for i in labels]
+        return [{"language": lang_path.stem, "text": paragraphs[i], "labels": sorted(set(labels[i]))} for i in labels]
 
     data_path = GLOBAL_DATA_PATH / "clef-2024-task-3" / "data"
 
@@ -205,8 +220,8 @@ def load_clef_2024_task_3(languages: list[str], include_dev: bool = False):
 
     if records:
         df = pd.DataFrame.from_records(records)
-        return df[["text", "labels"]]
-    return pd.DataFrame(columns=["text", "labels"])
+        return df
+    return pd.DataFrame(columns=["language", "text", "labels"])
 
 
 def load_slavicnlp_2025(languages: list[str]) -> pd.DataFrame:
