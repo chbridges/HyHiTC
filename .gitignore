@@ -3,11 +3,12 @@ PersuasionNLPTools/
 classla/
 data/
 layers/
+logs/
 manifolds/
 models/
 utils/
 slurm.sh
-*.log
+translate.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
