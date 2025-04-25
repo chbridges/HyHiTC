@@ -27,7 +27,6 @@ args = parser.parse_args()
 
 SRC_LANGS = LANGUAGE_SETS[args.src_langs]
 TGT_LANGS = LANGUAGE_SETS[args.tgt_langs]
-TGT_LANGS = ["de"]
 
 logging.info(f"Using CUDA: {torch.cuda.is_available()}")
 logging.info(f"Target languages: {TGT_LANGS}")
@@ -84,5 +83,5 @@ for tgt_lang in TGT_LANGS:
                 records.append({"id": ids[i], "language": tgt_lang, "text": translations[i], "labels": labels[i]})
 
     df = pd.DataFrame.from_records(records)
-    df.to_parquet(Path(f"./data/translations.parquet"))
+    df.to_parquet(Path(f"./data/translations_{args.tgt_langs}.parquet"))
     print(df)

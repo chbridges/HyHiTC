@@ -64,11 +64,11 @@ def make_multilabel_metrics(num_classes: int):
 
 def model_init():
     """Required for hyperparameter search."""
-    return HieRoberta(args, config, G)
+    return HieRoberta(args, config, hierarchy)
 
 
 if __name__ == "__main__":
-    enable_full_determinism(seed=0)
+    enable_full_determinism(seed=42)
 
     args = parse_args()
     start_time = datetime.now()
