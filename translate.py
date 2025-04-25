@@ -53,9 +53,9 @@ src_data = pd.concat(
         func(SRC_LANGS)
         for func in (
             load_semeval_2021_task_6_subtask_1,
-            # load_semeval_2023_task_3_subtask_3,
-            # load_semeval_2024_task_4_subtask_1,
-            # load_slavicnlp_2025,
+            load_semeval_2023_task_3_subtask_3,
+            load_semeval_2024_task_4_subtask_1,
+            load_slavicnlp_2025,
         )
     ]
 )
@@ -82,11 +82,6 @@ for tgt_lang in TGT_LANGS:
             translations = translate_batch(batch["text"].to_list(), tgt_lang)
             for i in range(len(batch)):
                 records.append({"id": ids[i], "language": tgt_lang, "text": translations[i], "labels": labels[i]})
-
-        print(filtered[:5])
-        print(batch)
-        print(labels)
-        break
 
     df = pd.DataFrame.from_records(records)
     df.to_parquet(Path(f"./data/translations.parquet"))
