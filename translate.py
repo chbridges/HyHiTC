@@ -19,10 +19,10 @@ from train import LANGUAGE_SETS
 logging.getLogger().setLevel(logging.INFO)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--batch_size", "-b", type=int, default=64)
+parser.add_argument("--batch_size", "-b", type=int, default=8)
 parser.add_argument("--model", "-m", default="google/madlad400-3b-mt")
 parser.add_argument("--src_langs", "-src", choices=LANGUAGE_SETS.keys(), default="all")
-parser.add_argument("--tgt_langs", "-tgt", choices=LANGUAGE_SETS.keys(), default="european_latin")
+parser.add_argument("--tgt_langs", "-tgt", choices=LANGUAGE_SETS.keys(), default="slavic_en")
 args = parser.parse_args()
 
 SRC_LANGS = LANGUAGE_SETS[args.src_langs]
@@ -30,8 +30,9 @@ TGT_LANGS = LANGUAGE_SETS[args.tgt_langs]
 
 logging.info(f"Using CUDA: {torch.cuda.is_available()}")
 logging.info(f"Target languages: {TGT_LANGS}")
-enable_full_determinism(seed=42)
 
+logging.info(f"Loading model: {args.model}")
+enable_full_determinism(seed=42)
 model = AutoModelForSeq2SeqLM.from_pretrained(args.model, device_map="auto")
 tokenizer = AutoTokenizer.from_pretrained(args.model)
 
@@ -59,15 +60,31 @@ src_data = pd.concat(
     ]
 )
 # Linebreaks are ignored by XLM-R but not by MadLad
-src_data["text"] = src_data["text"].apply(lambda t: re.sub(r"\s+", " ", t))
+src_data["text"] = src_data["text"].apply(lambda t: re.sub(r"(\s|\\n|\\)+", " ", t))
 
-records = []
+t_path = Path(f"./data/translations/")
+t_path.mkdir(exist_ok=True)
 
 for tgt_lang in TGT_LANGS:
+    parquet_file = t_path / f"{tgt_lang}.parquet"
+    temp_file = t_path / f"{tgt_lang}.temp"
+
+    if parquet_file.exists():
+        logging.info(f"Skipping language: {tgt_lang} (parquet exists)")
+        continue
+    if temp_file.exists():
+        logging.info(f"Skipping language: {tgt_lang} (temp exists)")
+        continue
+
     logging.info(f"Translating data to: {tgt_lang}")
+    with temp_file.open("w") as file:
+        file.write(tgt_lang)
+
     filtered = src_data[src_data["language"] != tgt_lang]
     if not len(filtered):
         continue
+
+    records = []
 
     for i in tqdm(range(len(filtered) // args.batch_size + 1)):
         batch = filtered[i * args.batch_size : (i + 1) * args.batch_size]
@@ -77,11 +94,10 @@ for tgt_lang in TGT_LANGS:
         ids = batch["id"].to_list()
         labels = batch["labels"].to_list()
 
-        for tgt_lang in TGT_LANGS:
-            translations = translate_batch(batch["text"].to_list(), tgt_lang)
-            for i in range(len(batch)):
-                records.append({"id": ids[i], "language": tgt_lang, "text": translations[i], "labels": labels[i]})
+        translations = translate_batch(batch["text"].to_list(), tgt_lang)
+        for i in range(len(batch)):
+            records.append({"id": ids[i], "language": tgt_lang, "text": translations[i], "labels": labels[i]})
 
     df = pd.DataFrame.from_records(records)
-    df.to_parquet(Path(f"./data/translations_{args.tgt_langs}.parquet"))
-    print(df)
+    df.to_parquet(parquet_file)
+    temp_file.unlink()
