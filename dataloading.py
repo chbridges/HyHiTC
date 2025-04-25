@@ -30,19 +30,19 @@ def load_semeval_2021_task_6_subtask_1(languages: list[str]) -> pd.DataFrame:
         return pd.DataFrame(columns=["id", "language", "text", "labels"])
 
     data_path = GLOBAL_DATA_PATH / "semeval-2021-task-6" / "data"
-    splits = [
-        data_path / "training_set_task1.txt",
-        data_path / "dev_set_task1.txt",
-        data_path / "test_set_task1.txt",
-    ]
+    splits = {
+        "train": data_path / "training_set_task1.txt",
+        "dev": data_path / "dev_set_task1.txt",
+        "test": data_path / "test_set_task1.txt",
+    }
 
     records = []
-    for split in splits:
+    for name, split in splits.items():
         with split.open("r", encoding="utf-8") as f:
             for i, record in enumerate(json.load(f)):
                 records.append(
                     {
-                        "id": f"semeval2021_{i}",
+                        "id": f"semeval2021_{name}_{i}",
                         "language": "en",
                         "text": record["text"],
                         "labels": [LABEL_MAP[label] for label in record["labels"]],
@@ -342,6 +342,9 @@ def load_merge_encode(args, languages: list[str], G: nx.DiGraph) -> tuple[Datase
     train_df = pd.concat([func(languages) for func in train_funcs])
     test_df = load_slavicnlp_2025(languages)
 
+    train_df["text"] = train_df["text"].apply(lambda t: re.sub(r"\s+", " ", t))
+    test_df["text"] = test_df["text"].apply(lambda t: re.sub(r"\s+", " ", t))
+
     # TODO: include machine translations
 
     # Binary encode labels
@@ -354,8 +357,8 @@ def load_merge_encode(args, languages: list[str], G: nx.DiGraph) -> tuple[Datase
     else:
         binarizer.fit([VALID_LABELS])
 
-    train_df["labels"] = train_df["labels"].map(lambda l: binarizer.transform([l])[0])
-    test_df["labels"] = test_df["labels"].map(lambda l: binarizer.transform([l])[0])
+    train_df["labels"] = train_df["labels"].apply(lambda l: binarizer.transform([l])[0])
+    test_df["labels"] = test_df["labels"].apply(lambda l: binarizer.transform([l])[0])
 
     # Split dataset
     train_df, val_df = train_test_split(train_df, random_state=0, test_size=args.val_size)
