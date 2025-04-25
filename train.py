@@ -42,6 +42,7 @@ def parse_args():
     parser.add_argument("--node_classification", "-nc", action="store_true")
     parser.add_argument("--node_size", "-ns", type=int, default=64)
     parser.add_argument("--pooling", "-p", action="store_true")
+    parser.add_argument("--translations", "-t", action="store_true")
     parser.add_argument("--val_size", "-v", type=float, default=0.2)
     return parser.parse_args()
 
@@ -85,13 +86,19 @@ if __name__ == "__main__":
 
     match args.hierarchy:
         case "full":
-            G = create_full_hierarchy()
+            hierarchy = create_full_hierarchy()
         case "taxonomy":
-            G = create_taxonomy()
+            hierarchy = create_taxonomy()
         case _:
-            G = None
+            hierarchy = None
 
-    dataset, binarizer = load_merge_encode(args, LANGUAGE_SETS[args.languages], G)
+    dataset, binarizer = load_merge_encode(
+        languages=LANGUAGE_SETS[args.languages],
+        hierarchy=hierarchy,
+        include_clef=args.include_clef,
+        include_translations=args.translations,
+        val_size=args.val_size,
+    )
 
     if args.debug:
         dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
