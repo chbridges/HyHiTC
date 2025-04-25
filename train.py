@@ -18,13 +18,13 @@ from dataloading import load_merge_encode
 from hierarchy import create_full_hierarchy, create_taxonomy
 
 LANGUAGE_SETS = {
-    "shared_task": ["bg", "hr", "pl", "sl", "ru"],  # primary languages
-    "slavic": ["bg", "hr", "mk", "pl", "sl", "ru"],  # add Macedonian (close to Bulgarian)
-    "slavic_en": ["bg", "en", "hr", "mk", "pl", "sl", "ru"],  # add English
-    "european_latin": ["bg", "de", "en", "es", "fr", "it", "hr", "mk", "pl", "sl", "ru"],  # add all Latin alphabet
-    "parlamint": ["bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "sl", "ru"],  # add Greek
-    "european": ["bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "sl", "ru"],  # add Georgian
-    "all": ["ar", "bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "sl", "ru"],  # add Arabic
+    "shared_task": ["bg", "hr", "pl", "ru", "sl"],  # primary languages
+    "slavic": ["bg", "hr", "mk", "pl", "ru", "sl"],  # add Macedonian (close to Bulgarian)
+    "slavic_en": ["bg", "en", "hr", "mk", "pl", "ru", "sl"],  # add English
+    "european_latin": ["bg", "de", "en", "es", "fr", "it", "hr", "mk", "pl", "ru", "sl"],  # add all Latin alphabet
+    "parlamint": ["bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "ru", "sl"],  # add Greek
+    "european": ["bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "ru", "sl"],  # add Georgian
+    "all": ["ar", "bg", "de", "el", "en", "es", "fr", "it", "hr", "ka", "mk", "pl", "ru", "sl"],  # add Arabic
 }
 
 
@@ -35,13 +35,14 @@ def parse_args():
     parser.add_argument("--gnn", "-g", choices=["gcn", "hgcn", "hie"], default="gcn")
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--hp_search", "-hp", action="store_true")
-    parser.add_argument("--include_clef", "-ic", action="store_true")
     parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="european_latin")
     parser.add_argument("--learning_rate", "-lr", type=float, default=2e-5)
     parser.add_argument("--model", "-m", default="classla/xlm-r-parla")
     parser.add_argument("--node_classification", "-nc", action="store_true")
     parser.add_argument("--node_size", "-ns", type=int, default=64)
     parser.add_argument("--pooling", "-p", action="store_true")
+    parser.add_argument("--test_data", "-train", default="slavicnlp2025")
+    parser.add_argument("--train_data", "-test", default="semeval2021,semeval2023,semeval2024")
     parser.add_argument("--translations", "-t", action="store_true")
     parser.add_argument("--val_size", "-v", type=float, default=0.2)
     return parser.parse_args()

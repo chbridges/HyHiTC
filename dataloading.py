@@ -333,23 +333,24 @@ def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[
 def load_merge_encode(
         languages: list[str],
         hierarchy: Optional[nx.DiGraph] = None,
-        include_clef: bool = False,
         include_translations: bool = False,
+        train_datasets: str = "semeval2021,semeval2023,semeval2024",
+        test_datasets: str = "slavicnlp2025",
         val_size: float = 0.2,
     ) -> tuple[DatasetDict, MultiLabelBinarizer]:
-    train_funcs = [
-        load_semeval_2021_task_6_subtask_1,  # en only
-        load_semeval_2023_task_3_subtask_3,
-        load_semeval_2024_task_4_subtask_1,
-    ]
-    if include_clef:
-        train_funcs.append(load_clef_2024_task_3)
+    dataset_funcs = {
+        "clef2024": load_clef_2024_task_3,
+        "semeval2021": load_semeval_2021_task_6_subtask_1,
+        "semeval2023": load_semeval_2023_task_3_subtask_3,
+        "semeval2024": load_semeval_2024_task_4_subtask_1,
+        "slavicnlp2025": load_slavicnlp_2025,
+    }
 
-    train_df = pd.concat([func(languages) for func in train_funcs])
-    test_df = load_slavicnlp_2025(languages)
+    train_df = pd.concat([dataset_funcs[dataset](languages) for dataset in train_datasets.split(",")])
+    test_df = pd.concat([dataset_funcs[dataset](languages) for dataset in test_datasets.split(",")])
 
-    train_df["text"] = train_df["text"].apply(lambda t: re.sub(r"\s+", " ", t))
-    test_df["text"] = test_df["text"].apply(lambda t: re.sub(r"\s+", " ", t))
+    train_df["text"] = train_df["text"].apply(lambda t: re.sub(r"(\s|\\n|\\)+", " ", t))
+    test_df["text"] = test_df["text"].apply(lambda t: re.sub(r"(\s|\\n|\\)+", " ", t))
 
     # Binary encode labels
     binarizer = MultiLabelBinarizer()
@@ -368,7 +369,10 @@ def load_merge_encode(
     train_df, val_df = train_test_split(train_df, random_state=42, test_size=val_size)
 
     if include_translations:
-        translations = pd.read_parquet(Path("./data/translations.parquet"))
+        t_path = Path("./data/translations")
+        translations = pd.concat(
+            [pd.read_parquet(t_path / f"{lang}.parquet") for lang in languages if (t_path / f"{lang}.parquet").exists()]
+        )
         translations = translations[translations["language"].isin(languages)]
         filtered = translations[~translations["id"].isin(val_df["id"])].copy()
         filtered["labels"] = filtered["labels"].apply(lambda l: binarizer.transform([l])[0])
@@ -393,15 +397,11 @@ if __name__ == "__main__":
 
     languages = ["bg", "en", "hr", "mk", "pl", "sl", "ru"]
 
-    for func in [
-        load_semeval_2021_task_6_subtask_1,
-        load_semeval_2023_task_3_subtask_3,
-        load_semeval_2024_task_4_subtask_1,
-        load_clef_2024_task_3,
-        load_slavicnlp_2025,
-    ]:
-        df = func(languages)
+    dataset, _ = load_merge_encode(languages)
+    for split in dataset:
+        df = pd.DataFrame(dataset[split])
         assert len(df[df.duplicated("id")]) == 0
+        print(df["text"])
 
     dataset, _ = load_merge_encode(languages, include_translations=True)
     train_ids = dataset["train"]["id"]
