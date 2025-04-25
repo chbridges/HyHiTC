@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--epochs", "-e", type=int, default=10)
     parser.add_argument("--gnn", "-g", choices=["gcn", "hgcn", "hie"], default="gcn")
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
+    parser.add_argument("--hp_search", "-hp", action="store_true")
     parser.add_argument("--include_clef", "-ic", action="store_true")
     parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="european_latin")
     parser.add_argument("--learning_rate", "-lr", type=float, default=2e-5)
@@ -60,75 +61,87 @@ def make_multilabel_metrics(num_classes: int):
     return compute_metrics
 
 
-enable_full_determinism(seed=0)
+def model_init():
+    """Required for hyperparameter search."""
+    return HieRoberta(args, config, G)
 
-args = parse_args()
-start_time = datetime.now()
 
-if args.hierarchy:
-    experiment_stem = f"{args.hierarchy}-{args.gnn}"
-else:
-    experiment_stem = "flat"
-experiment_name = f"{args.model}-{experiment_stem}-{args.languages}"  # -{start_time.strftime('%y%m%d%H%M')}"
+if __name__ == "__main__":
+    enable_full_determinism(seed=0)
 
-print(f"Experiment: {experiment_name}\n")
-for k, v in args.__dict__.items():
-    print(f"{k}:\t{v}")
-print("\nStart Time:", start_time)
+    args = parse_args()
+    start_time = datetime.now()
 
-match args.hierarchy:
-    case "full":
-        G = create_full_hierarchy()
-    case "taxonomy":
-        G = create_taxonomy()
-    case _:
-        G = None
+    if args.hierarchy:
+        experiment_stem = f"{args.hierarchy}-{args.gnn}"
+    else:
+        experiment_stem = "flat"
+    experiment_name = f"{args.model}-{experiment_stem}-{args.languages}"  # -{start_time.strftime('%y%m%d%H%M')}"
 
-dataset, binarizer = load_merge_encode(args, LANGUAGE_SETS[args.languages], G)
+    print(f"Experiment: {experiment_name}\n")
+    for k, v in args.__dict__.items():
+        print(f"{k}:\t{v}")
+    print("\nStart Time:", start_time)
 
-if args.debug:
-    dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
+    match args.hierarchy:
+        case "full":
+            G = create_full_hierarchy()
+        case "taxonomy":
+            G = create_taxonomy()
+        case _:
+            G = None
 
-config = XLMRobertaConfig.from_pretrained(args.model, num_labels=len(binarizer.classes_))
-model = HieRoberta(args, config, G)
-tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.model)
-data_collator = DataCollatorWithPadding(tokenizer)
+    dataset, binarizer = load_merge_encode(args, LANGUAGE_SETS[args.languages], G)
 
-for split in dataset.keys():
-    dataset[split] = dataset[split].map(
-        lambda sample: tokenizer(sample["text"], padding=True, truncation=True, return_tensors="pt"),
-        batched=True,
+    if args.debug:
+        dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
+
+    config = XLMRobertaConfig.from_pretrained(args.model, num_labels=len(binarizer.classes_))
+    # model = HieRoberta(args, config, G)
+    tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.model)
+    data_collator = DataCollatorWithPadding(tokenizer)
+
+    for split in dataset.keys():
+        dataset[split] = dataset[split].map(
+            lambda sample: tokenizer(sample["text"], padding=True, truncation=True, return_tensors="pt"),
+            batched=True,
+        )
+
+    training_args = TrainingArguments(
+        output_dir=experiment_name,
+        num_train_epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        lr_scheduler_type="cosine",
+        warmup_ratio=1 / args.epochs,  # first epoch
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+        weight_decay=0.01,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        save_total_limit=1,
+        load_best_model_at_end=True,
+        fp16=True,
+        metric_for_best_model="macro_f1",
     )
 
-training_args = TrainingArguments(
-    output_dir=experiment_name,
-    num_train_epochs=args.epochs,
-    learning_rate=args.learning_rate,
-    lr_scheduler_type="cosine",
-    warmup_ratio=1 / args.epochs,  # first epoch
-    per_device_train_batch_size=16,
-    per_device_eval_batch_size=16,
-    weight_decay=0.01,
-    eval_strategy="epoch",
-    save_strategy="epoch",
-    save_total_limit=1,
-    load_best_model_at_end=True,
-    fp16=True,
-    metric_for_best_model="macro_f1",
-)
+    trainer = Trainer(
+        model_init=model_init,
+        args=training_args,
+        data_collator=data_collator,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset["val"],
+        processing_class=tokenizer,
+        compute_metrics=make_multilabel_metrics(num_classes=config.num_labels),
+    )
 
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    data_collator=data_collator,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["val"],
-    processing_class=tokenizer,
-    compute_metrics=make_multilabel_metrics(num_classes=config.num_labels),
-)
+    if args.hp_search:
+        best_run = trainer.hyperparameter_search(n_trials=10, direction="maximize")
+        print(best_run)
+        for k, v in best_run.hyperparameters.items():
+            setattr(trainer.args, k, v)
 
-trainer.train()
+    trainer.train()
 
-results = trainer.evaluate(dataset["test"], metric_key_prefix="test")
-print(results)
-print("Total execution time:", datetime.now() - start_time)
+    results = trainer.evaluate(dataset["test"], metric_key_prefix="test")
+    print(results)
+    print("Total execution time:", datetime.now() - start_time)
