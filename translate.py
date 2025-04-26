@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import torch
 from tqdm import tqdm
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, enable_full_determinism
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, BitsAndBytesConfig, enable_full_determinism
 
 from dataloading import (
     load_semeval_2021_task_6_subtask_1,
@@ -19,7 +19,7 @@ from train import LANGUAGE_SETS
 logging.getLogger().setLevel(logging.INFO)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--batch_size", "-b", type=int, default=8)
+parser.add_argument("--batch_size", "-b", type=int, default=16)
 parser.add_argument("--model", "-m", default="google/madlad400-3b-mt")
 parser.add_argument("--src_langs", "-src", choices=LANGUAGE_SETS.keys(), default="all")
 parser.add_argument("--tgt_langs", "-tgt", choices=LANGUAGE_SETS.keys(), default="slavic_en")
@@ -33,7 +33,12 @@ logging.info(f"Target languages: {TGT_LANGS}")
 
 logging.info(f"Loading model: {args.model}")
 enable_full_determinism(seed=42)
-model = AutoModelForSeq2SeqLM.from_pretrained(args.model, device_map="auto")
+model = AutoModelForSeq2SeqLM.from_pretrained(
+    args.model,
+    quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16),
+    torch_dtype=torch.float16,
+    device_map="auto",
+)
 tokenizer = AutoTokenizer.from_pretrained(args.model)
 
 
