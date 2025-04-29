@@ -1,8 +1,11 @@
 import argparse
 from datetime import datetime
+from typing import Optional
 
+import networkx as nx
 import torch
 from geoopt.optim import RiemannianAdam
+from sklearn.preprocessing import MultiLabelBinarizer
 from torchmetrics.classification import BinaryF1Score, MultilabelF1Score
 from transformers import (
     DataCollatorWithPadding,
@@ -30,35 +33,61 @@ LANGUAGE_SETS = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--batch_size", "-b", type=int, default=16)
     parser.add_argument("--debug", "-d", action="store_true")
     parser.add_argument("--epochs", "-e", type=int, default=10)
+    parser.add_argument("--freeze", "-f", action="store_true")
     parser.add_argument("--gnn", "-g", choices=["gcn", "hgcn", "hie"], default="gcn")
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--hp_search", "-hp", action="store_true")
     parser.add_argument("--languages", "-l", choices=LANGUAGE_SETS.keys(), default="european_latin")
-    parser.add_argument("--learning_rate", "-lr", type=float, default=2e-5)
+    parser.add_argument("--learning_rate", "-lr", type=float, default=1e-5)
     parser.add_argument("--model", "-m", default="classla/xlm-r-parla")
     parser.add_argument("--node_classification", "-nc", action="store_true")
-    parser.add_argument("--node_size", "-ns", type=int, default=64)
+    parser.add_argument("--node_dim", "-nd", type=int, default=64)
     parser.add_argument("--pooling", "-p", action="store_true")
-    parser.add_argument("--test_data", "-train", default="slavicnlp2025")
-    parser.add_argument("--train_data", "-test", default="semeval2021,semeval2023,semeval2024")
+    parser.add_argument("--seed", "-s", type=int, default=42)
+    parser.add_argument("--test_data", "-test", default="slavicnlp2025")
+    parser.add_argument("--train_data", "-train", default="semeval2021,semeval2023,semeval2024")
     parser.add_argument("--translations", "-t", action="store_true")
     parser.add_argument("--val_size", "-v", type=float, default=0.2)
     return parser.parse_args()
 
 
-def make_multilabel_metrics(num_classes: int):
-    metrics = {
-        "hierarchical_f1": BinaryF1Score(),
-        "micro_f1": MultilabelF1Score(num_classes, average="micro"),
-        "macro_f1": MultilabelF1Score(num_classes, average="macro"),
-    }
+def make_multilabel_metrics(
+    binarizer: MultiLabelBinarizer,
+    hierarchy: Optional[nx.DiGraph] = None,
+):
+    if hierarchy:
+        leaves = [v for v in hierarchy.nodes() if hierarchy.out_degree(v) == 0]
+        leave_idx = [i for i, c in enumerate(binarizer.classes_) if c in leaves]
+        num_leaves = len(leaves)
+    else:
+        num_leaves = len(binarizer.classes_)
+        leave_idx = list(range(num_leaves))
+
+    hierarchical_f1 = MultilabelF1Score(binarizer.classes_, average="micro")
+    micro_f1 = MultilabelF1Score(num_leaves, average="micro")
+    macro_f1 = MultilabelF1Score(num_leaves, average="macro")
+
+    def add_ancestors(binary_labels):
+        if not hierarchy:
+            return binary_labels
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
-        # TODO: remove ancestors for micro and macro f1
-        return {name: metric(torch.Tensor(logits), torch.Tensor(labels)) for name, metric in metrics.items()}
+        preds = torch.sigmoid(logits) > 0.5
+        # add ancestors for hierarchical F1
+
+        # remove ancestors for macro/micro F1
+        preds_leaves = torch.Tensor(preds[:, leave_idx])
+        labels_leaves = torch.Tensor(labels[:, leave_idx])
+
+        return {
+            "hierarchical_f1": hierarchical_f1(torch.Tensor(logits), torch.Tensor(labels)),
+            "micro_f1": micro_f1(preds_leaves, labels_leaves),
+            "macro_f1": macro_f1(preds_leaves, labels_leaves),
+        }
 
     return compute_metrics
 
@@ -78,7 +107,7 @@ if __name__ == "__main__":
         experiment_stem = f"{args.hierarchy}-{args.gnn}"
     else:
         experiment_stem = "flat"
-    experiment_name = f"{args.model}-{experiment_stem}-{args.languages}"  # -{start_time.strftime('%y%m%d%H%M')}"
+    experiment_name = f"{args.model}-{experiment_stem}-{args.languages}-{start_time.strftime('%y%m%d%H%M')}"
 
     print(f"Experiment: {experiment_name}\n")
     for k, v in args.__dict__.items():
@@ -95,8 +124,8 @@ if __name__ == "__main__":
 
     dataset, binarizer = load_merge_encode(
         languages=LANGUAGE_SETS[args.languages],
+        train_datasets=args.train_data,
         hierarchy=hierarchy,
-        include_clef=args.include_clef,
         include_translations=args.translations,
         val_size=args.val_size,
     )
@@ -116,19 +145,23 @@ if __name__ == "__main__":
         )
 
     training_args = TrainingArguments(
+        # general
         output_dir=experiment_name,
         num_train_epochs=args.epochs,
+        fp16=True,
+        seed=args.seed,
+        eval_strategy="epoch",
+        # optimizer
+        weight_decay=0.01,
         learning_rate=args.learning_rate,
         lr_scheduler_type="cosine",
         warmup_ratio=1 / args.epochs,  # first epoch
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        weight_decay=0.01,
-        eval_strategy="epoch",
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        # saving
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,
-        fp16=True,
         metric_for_best_model="macro_f1",
     )
 
@@ -139,7 +172,7 @@ if __name__ == "__main__":
         train_dataset=dataset["train"],
         eval_dataset=dataset["val"],
         processing_class=tokenizer,
-        compute_metrics=make_multilabel_metrics(num_classes=config.num_labels),
+        compute_metrics=make_multilabel_metrics(binarizer, hierarchy),
     )
 
     if args.hp_search:
