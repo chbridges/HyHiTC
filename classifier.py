@@ -22,29 +22,38 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         self.config = config
         self.loss_fct = nn.BCEWithLogitsLoss()
         self.hierarchy = hierarchy
+        self.hyperbolic = bool(hierarchy) and args.gnn in ["hgcn", "hie"]
         self.node_classification = args.node_classification
-        self.node_size = args.node_size
-        self.output_size = 1 if args.node_classification else args.node_size
+        self.node_dim = args.node_dim
+        self.output_dim = 1 if args.node_classification else args.node_dim
         self.pooling = args.pooling
 
-        self.roberta = XLMRobertaModel(config)
+        self.roberta = XLMRobertaModel(config, add_pooling_layer=args.pooling)
+
+        # Freeze the first 50% of layers
+        if args.freeze:
+            modules = [self.roberta.embeddings, self.roberta.encoder.layer[config.num_hidden_layers // 2]]
+            for module in modules:
+                for param in module.parameters():
+                    param.requires_grad = False
 
         # Insert GNN between LM and classification head
-        if hierarchy:
+        if self.hyperbolic:
+            self.edges_fwd = nx.adjacency_matrix(hierarchy)
+            self.edges_bwd = self.edges_fwd.T
+            self.dropout = nn.Dropout(config.hidden_dropout_prob)
+            self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_dim)
+            self.gconv_fwd = GNN[args.gnn](...)
+            self.gconv_bwd = GNN[args.gnn](...)
+            self.out_proj = nn.Linear(config.num_labels * self.node_dim, config.num_labels)
+        elif self.hierarchy:
             self.edges_fwd = from_networkx(hierarchy).edge_index
             self.edges_bwd = from_networkx(hierarchy.reverse()).edge_index
-            if self.pooling:
-                self.pooler = nn.Sequential(
-                    nn.Dropout(config.hidden_dropout_prob),
-                    nn.Linear(config.hidden_size, config.hidden_size),
-                    nn.Tanh(),
-                    nn.Dropout(config.hidden_dropout_prob),
-                )  # inspired by XLMRobertaClassificationHead (pooler with added dropout)
             self.dropout = nn.Dropout(config.hidden_dropout_prob)
-            self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_size)
-            self.gconv_fwd = GNN[args.gnn](self.node_size, self.output_size)
-            self.gconv_bwd = GNN[args.gnn](self.node_size, self.output_size)
-            self.out_proj = nn.Linear(config.num_labels * self.node_size, config.num_labels)
+            self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_dim)
+            self.gconv_fwd = GNN[args.gnn](self.node_dim, self.output_dim)
+            self.gconv_bwd = GNN[args.gnn](self.node_dim, self.output_dim)
+            self.out_proj = nn.Linear(config.num_labels * self.node_dim, config.num_labels)
         else:
             self.classifier = XLMRobertaClassificationHead(config)
 
@@ -83,10 +92,6 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         if self.hierarchy:
             self.edges_fwd = self.edges_fwd.to(sequence_output.device)
             self.edges_bwd = self.edges_bwd.to(sequence_output.device)
-            if self.pooling:
-                pooled = self.pooler(sequence_output[:, 0, :])
-            else:
-                pooled = sequence_output[:, 0, :]
             projected = self.dropout(self.projection(pooled))
             projected = projected.view(projected.shape[0], self.config.num_labels, -1)
             fwd = self.dropout(self.gconv_fwd(projected, self.edges_fwd))
@@ -96,12 +101,13 @@ class HieRoberta(XLMRobertaPreTrainedModel):
                 logits = convolved  # no activation in output layer
             else:
                 convolved = torch.relu(convolved)
-                convolved = convolved.view(convolved.shape[0], self.config.num_labels * self.node_size)
+                convolved = convolved.view(convolved.shape[0], self.config.num_labels * self.node_dim)
                 logits = self.out_proj(convolved)
         else:
             logits = self.classifier(sequence_output)
 
         loss = None
+
         if labels is not None:
             # move labels to correct device to enable model parallelism
             labels = labels.to(logits.device)
