@@ -332,10 +332,10 @@ def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[
 
 def load_merge_encode(
         languages: list[str],
-        hierarchy: Optional[nx.DiGraph] = None,
-        include_translations: bool = False,
         train_datasets: str = "semeval2021,semeval2023,semeval2024",
         test_datasets: str = "slavicnlp2025",
+        hierarchy: Optional[nx.DiGraph] = None,
+        include_translations: bool = False,
         val_size: float = 0.2,
     ) -> tuple[DatasetDict, MultiLabelBinarizer]:
     dataset_funcs = {
@@ -345,22 +345,21 @@ def load_merge_encode(
         "semeval2024": load_semeval_2024_task_4_subtask_1,
         "slavicnlp2025": load_slavicnlp_2025,
     }
+    train_datasets = train_datasets.split(",")
 
-    train_df = pd.concat([dataset_funcs[dataset](languages) for dataset in train_datasets.split(",")])
+    train_df = pd.concat([dataset_funcs[dataset](languages) for dataset in train_datasets])
     test_df = pd.concat([dataset_funcs[dataset](languages) for dataset in test_datasets.split(",")])
 
     train_df["text"] = train_df["text"].apply(lambda t: re.sub(r"(\s|\\n|\\)+", " ", t))
     test_df["text"] = test_df["text"].apply(lambda t: re.sub(r"(\s|\\n|\\)+", " ", t))
 
     # Binary encode labels
-    binarizer = MultiLabelBinarizer()
-
     if hierarchy:
-        binarizer.fit([hierarchy.nodes])
+        binarizer = MultiLabelBinarizer(classes=hierarchy.nodes).fit([hierarchy.nodes])
         train_df = add_ancestors(train_df, hierarchy)
         test_df = add_ancestors(test_df, hierarchy)
     else:
-        binarizer.fit([VALID_LABELS])
+        binarizer = MultiLabelBinarizer(classes=sorted(VALID_LABELS)).fit([VALID_LABELS])
 
     train_df["labels"] = train_df["labels"].apply(lambda l: binarizer.transform([l])[0])
     test_df["labels"] = test_df["labels"].apply(lambda l: binarizer.transform([l])[0])
@@ -374,9 +373,11 @@ def load_merge_encode(
             [pd.read_parquet(t_path / f"{lang}.parquet") for lang in languages if (t_path / f"{lang}.parquet").exists()]
         )
         translations = translations[translations["language"].isin(languages)]
-        filtered = translations[~translations["id"].isin(val_df["id"])].copy()
+        filtered = translations[translations["id"].str.contains("|".join(train_datasets))]
+        filtered = filtered[~filtered["id"].isin(val_df["id"])].copy()
         filtered["labels"] = filtered["labels"].apply(lambda l: binarizer.transform([l])[0])
-        train_df = pd.concat([train_df, filtered]).sample(frac=1, random_state=42)
+        if len(filtered):
+            train_df = pd.concat([train_df, filtered]).sample(frac=1, random_state=42)
 
     dataset = DatasetDict(
         {
