@@ -92,7 +92,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         if self.hierarchy:
             self.edges_fwd = self.edges_fwd.to(sequence_output.device)
             self.edges_bwd = self.edges_bwd.to(sequence_output.device)
-            projected = self.dropout(self.projection(pooled))
+            projected = self.dropout(self.projection(sequence_output[:, 0, :]))
             projected = projected.view(projected.shape[0], self.config.num_labels, -1)
             fwd = self.dropout(self.gconv_fwd(projected, self.edges_fwd))
             bwd = self.dropout(self.gconv_bwd(projected, self.edges_bwd))
