@@ -70,11 +70,6 @@ def make_multilabel_metrics(
     return compute_metrics
 
 
-def model_init():
-    """Required for hyperparameter search."""
-    return HieRoberta(args, config, hierarchy)
-
-
 if __name__ == "__main__":
     enable_full_determinism(seed=42)
 
@@ -90,8 +85,6 @@ if __name__ == "__main__":
     print(f"Experiment: {experiment_name}\n")
     for k, v in args.__dict__.items():
         print(f"{k}:\t{v}")
-    if args.gnn in ["hgcn", "hie"]:
-        args = add_hie_arguments()
     print("\nStart Time:", start_time)
 
     match args.hierarchy:
@@ -117,7 +110,8 @@ if __name__ == "__main__":
         dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
 
     config = XLMRobertaConfig.from_pretrained(args.model, id2label=id2label, label2id=label2id)
-    # model = HieRoberta(args, config, G)
+    if args.gnn in ["hgcn", "hie"]:
+        args = add_hie_arguments(feat_dims=config.hidden_size)
     tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.model)
     data_collator = DataCollatorWithPadding(tokenizer)
 
@@ -149,7 +143,7 @@ if __name__ == "__main__":
     )
 
     trainer = Trainer(
-        model_init=model_init,
+        model_init=lambda: HieRoberta(args, config, hierarchy),  # required for hyperparameter search
         args=training_args,
         data_collator=data_collator,
         train_dataset=dataset["train"],

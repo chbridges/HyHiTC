@@ -34,19 +34,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def add_hie_arguments(args: argparse.Namespace) -> argparse.Namespace:
+def add_hie_arguments(args: argparse.Namespace, feat_dims: int) -> argparse.Namespace:
     args = argparse.Namespace(**vars(args))  # shallow copy
     vars(args)["act"] = "relu"  # Shimizu et al.: ops in hyperbolic space are inherently non-linear
     vars(args)["c"] = None  # Charmi et al.: learnable curvature leads to performance gain
-    vars(args)["device"] = "cuda:0"
+    vars(args)["device"] = "0"  # cuda:0
     vars(args)["dim"] = args.node_dim
-    vars(args)["local-agg"] = 1  # Chami et al.: local tangent space aggregation outperforms agg at origin
+    vars(args)["feat_dims"] = feat_dims  # XLM-R output size
+    vars(args)["local_agg"] = 1  # Chami et al.: local tangent space aggregation outperforms agg at origin
     vars(args)["manifold"] = "Hyperboloid"  # Nickel and Kiela: more numerically stable than Poincaré
-    vars(args)["num-layers"] = 1  # for comparison with HiAGM
-    vars(args)["n-heads"] = 1  # number of attention heads for graph attention networks, must be a divisor dim
-    vars(args)["pos-weight"] = (0,)  # mandatory argument of NCModel but not used
-    vars(args)["use-att"] = 1  # Charmi et al.: attention leads to performance gain
+    vars(args)["num_layers"] = 1  # for comparison with HiAGM
+    vars(args)["n_heads"] = 1  # number of attention heads for graph attention networks, must be a divisor dim
+    vars(args)["pos_weight"] = (0,)  # mandatory argument of NCModel but not used
+    vars(args)["use_att"] = 1  # Charmi et al.: attention leads to performance gain
     if args.gnn == "hie":
-        vars(args)["hyp-ireg"] = "hir_tangent"  # used in Yang et al. paper
-        vars(args)["ireg-lambda"] = 0.1  # Yang et al. do not report their used value
+        vars(args)["hyp_ireg"] = "hir_tangent"  # used in Yang et al. paper
+        vars(args)["ireg_lambda"] = 0.1  # Yang et al. do not report their used value
     return args
