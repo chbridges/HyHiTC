@@ -3,15 +3,13 @@ from typing import Optional
 import networkx as nx
 import torch
 from torch import nn
-from torch_geometric import nn as gnn
+from torch_geometric.nn import GCN
 from torch_geometric.utils.convert import from_networkx
 from transformers import XLMRobertaModel, XLMRobertaPreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.xlm_roberta.modeling_xlm_roberta import XLMRobertaClassificationHead
 
-from models.encoders import HGCN, HGNN
-
-GNN = {"gcn": gnn.GCNConv, "hgcn": HGCN, "hie": HGNN}
+from models.base_models import NCModel
 
 
 class HieRoberta(XLMRobertaPreTrainedModel):
@@ -22,40 +20,42 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         self.config = config
         self.loss_fct = nn.BCEWithLogitsLoss()
         self.hierarchy = hierarchy
-        self.hyperbolic = bool(hierarchy) and args.gnn in ["hgcn", "hie"]
+        self.hyperbolic = bool(hierarchy) and args.gnn in ["HGCN", "HIE"]
         self.node_classification = args.node_classification
         self.node_dim = args.node_dim
-        self.output_dim = 1 if args.node_classification else args.node_dim
         self.pooling = args.pooling
 
         self.roberta = XLMRobertaModel(config, add_pooling_layer=args.pooling)
 
         # Freeze the first 50% of layers
         if args.freeze:
-            modules = [self.roberta.embeddings, self.roberta.encoder.layer[config.num_hidden_layers // 2]]
+            modules = [self.roberta.embeddings, self.roberta.encoder.layer[: config.num_hidden_layers // 2]]
             for module in modules:
                 for param in module.parameters():
                     param.requires_grad = False
 
         # Insert GNN between LM and classification head
+        self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_dim)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
         if self.hyperbolic:
-            self.edges_fwd = nx.adjacency_matrix(hierarchy)
-            self.edges_bwd = self.edges_fwd.T
-            self.dropout = nn.Dropout(config.hidden_dropout_prob)
-            self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_dim)
-            self.gconv_fwd = GNN[args.gnn](...)
-            self.gconv_bwd = GNN[args.gnn](...)
-            self.out_proj = nn.Linear(config.num_labels * self.node_dim, config.num_labels)
+            sparse_adj = nx.adjacency_matrix(hierarchy.to_undirected(as_view=True))
+            self.adj = torch.Tensor(sparse_adj.todense())
+            self.hgcn = NCModel(args)
         elif self.hierarchy:
-            self.edges_fwd = from_networkx(hierarchy).edge_index
-            self.edges_bwd = from_networkx(hierarchy.reverse()).edge_index
-            self.dropout = nn.Dropout(config.hidden_dropout_prob)
-            self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_dim)
-            self.gconv_fwd = GNN[args.gnn](self.node_dim, self.output_dim)
-            self.gconv_bwd = GNN[args.gnn](self.node_dim, self.output_dim)
-            self.out_proj = nn.Linear(config.num_labels * self.node_dim, config.num_labels)
+            self.adj = from_networkx(hierarchy.to_undirected(as_view=True)).edge_index
+            self.gcn = GCN(
+                in_channels=self.node_dim,
+                hidden_channels=self.node_dim,
+                num_layers=args.layers,
+                out_channels=1 if self.node_classification else None,
+                dropout=config.hidden_dropout_prob,
+            )
         else:
             self.classifier = XLMRobertaClassificationHead(config)
+
+        if self.hierarchy and not self.node_classification:
+            self.out_proj = nn.Linear(config.num_labels * self.node_dim, config.num_labels)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -90,15 +90,18 @@ class HieRoberta(XLMRobertaPreTrainedModel):
 
         # Pass outputs through GNN
         if self.hierarchy:
-            self.edges_fwd = self.edges_fwd.to(sequence_output.device)
-            self.edges_bwd = self.edges_bwd.to(sequence_output.device)
+            self.adj = self.adj.to(sequence_output.device)
             projected = self.dropout(self.projection(sequence_output[:, 0, :]))
             projected = projected.view(projected.shape[0], self.config.num_labels, -1)
-            fwd = self.dropout(self.gconv_fwd(projected, self.edges_fwd))
-            bwd = self.dropout(self.gconv_bwd(projected, self.edges_bwd))
-            convolved = fwd + bwd
+
+            if self.hyperbolic:
+                convolved_hyp = self.hgcn.encode(projected, self.adj)
+                convolved = self.hgcn.decoder.decode(convolved_hyp, self.adj)
+            else:
+                convolved = self.gcn(projected, self.adj)
+
             if self.node_classification:
-                logits = convolved  # no activation in output layer
+                logits = convolved
             else:
                 convolved = torch.relu(convolved)
                 convolved = convolved.view(convolved.shape[0], self.config.num_labels * self.node_dim)
