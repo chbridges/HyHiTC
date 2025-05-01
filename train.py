@@ -6,35 +6,57 @@ import numpy as np
 import torch
 from geoopt.optim import RiemannianAdam
 from sklearn.preprocessing import MultiLabelBinarizer
-from torchmetrics.classification import BinaryF1Score, MultilabelF1Score
+from torchmetrics.classification import MultilabelF1Score
 from transformers import (
     DataCollatorWithPadding,
+    EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
     XLMRobertaConfig,
     XLMRobertaTokenizerFast,
-    enable_full_determinism,
+    set_seed,
 )
 
 from classifier import HieRoberta
-from config import LANGUAGE_SETS, add_hie_arguments, parse_args
+from config import LANGUAGE_SETS, add_hyp_default_args, parse_args
 from dataloading import load_merge_encode
 from hierarchy import create_full_hierarchy, create_taxonomy
 from PersuasionNLPTools.config import VALID_LABELS
+
+
+class RiemannianTrainer(Trainer):
+    """The default Trainer does not support custom optimizers, so we need to slightly
+    modify either its create_optimizer_and_scheduler or create_optimizer method."""
+
+    def create_optimizer(self):
+        decay_parameters = self.get_decay_parameter_names(self.model)
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in self.model.named_parameters() if (n in decay_parameters and p.requires_grad)],
+                "weight_decay": self.args.weight_decay,
+            },
+            {
+                "params": [
+                    p for n, p in self.model.named_parameters() if (n not in decay_parameters and p.requires_grad)
+                ],
+                "weight_decay": 0.0,
+            },
+        ]
+        # We replace optimizer_cls with RiemannianAdam
+        _, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, self.model)
+        for key in ("params", "model", "optimizer_dict"):
+            if key in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop(key)
+        self.optimizer = RiemannianAdam(optimizer_grouped_parameters, **optimizer_kwargs)
+        return self.optimizer
 
 
 def make_multilabel_metrics(
     binarizer: MultiLabelBinarizer,
     hierarchy: Optional[nx.DiGraph] = None,
 ):
-    if hierarchy:
-        # leaves = [v for v in hierarchy.nodes() if hierarchy.out_degree(v) == 0]
-        leaves = VALID_LABELS
-        leaves_idx = [i for i, c in enumerate(binarizer.classes_) if c in VALID_LABELS]
-        num_leaves = len(leaves)
-    else:
-        num_leaves = len(VALID_LABELS)
-        leaves_idx = None
+    num_leaves = len(VALID_LABELS)
+    leaves_idx = [i for i, c in enumerate(binarizer.classes_) if c in VALID_LABELS]
 
     label2id = {c: i for i, c in enumerate(binarizer.classes_)}
 
@@ -71,16 +93,15 @@ def make_multilabel_metrics(
 
 
 if __name__ == "__main__":
-    enable_full_determinism(seed=42)
-
     args = parse_args()
+    set_seed(seed=args.seed)
     start_time = datetime.now()
 
     if args.hierarchy:
         experiment_stem = f"{args.hierarchy}-{args.gnn}"
     else:
         experiment_stem = "flat"
-    experiment_name = f"{args.model}-{experiment_stem}-{args.languages}-{start_time.strftime('%y%m%d%H%M')}"
+    experiment_name = f"{args.language_model}-{experiment_stem}-{args.languages}-{start_time.strftime('%m%d%H%M')}"
 
     print(f"Experiment: {experiment_name}\n")
     for k, v in args.__dict__.items():
@@ -102,17 +123,16 @@ if __name__ == "__main__":
         include_translations=args.translations,
         val_size=args.val_size,
     )
-
     id2label = dict(enumerate(binarizer.classes_))
     label2id = {c: i for i, c in id2label.items()}
 
     if args.debug:
         dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
 
-    config = XLMRobertaConfig.from_pretrained(args.model, id2label=id2label, label2id=label2id)
-    if args.gnn in ["hgcn", "hie"]:
-        args = add_hie_arguments(feat_dims=config.hidden_size)
-    tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.model)
+    config = XLMRobertaConfig.from_pretrained(args.language_model, id2label=id2label, label2id=label2id)
+    if args.gnn in ["HGCN", "HIE"]:
+        args = add_hyp_default_args(args, config)
+    tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.language_model)
     data_collator = DataCollatorWithPadding(tokenizer)
 
     for split in dataset.keys():
@@ -140,9 +160,10 @@ if __name__ == "__main__":
         save_total_limit=1,
         load_best_model_at_end=True,
         metric_for_best_model="macro_f1",
+        greater_is_better=True,
     )
 
-    trainer = Trainer(
+    trainer = RiemannianTrainer(
         model_init=lambda: HieRoberta(args, config, hierarchy),  # required for hyperparameter search
         args=training_args,
         data_collator=data_collator,
@@ -150,6 +171,7 @@ if __name__ == "__main__":
         eval_dataset=dataset["val"],
         processing_class=tokenizer,
         compute_metrics=make_multilabel_metrics(binarizer, hierarchy),
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=10)],
     )
 
     if args.hp_search:
