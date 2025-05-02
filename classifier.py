@@ -22,8 +22,6 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         self.hierarchy = hierarchy
         self.hyperbolic = bool(hierarchy) and args.gnn in ["HGCN", "HIE"]
         self.node_classification = args.node_classification
-        self.node_dim = args.node_dim
-        self.pooling = args.pooling
 
         self.roberta = XLMRobertaModel(config, add_pooling_layer=args.pooling)
 
@@ -35,7 +33,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
                     param.requires_grad = False
 
         # Insert GNN between LM and classification head
-        self.projection = nn.Linear(config.hidden_size, config.num_labels * self.node_dim)
+        self.projection = nn.Linear(config.hidden_size, config.num_labels * args.node_dim)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         if self.hyperbolic:
@@ -45,8 +43,8 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         elif self.hierarchy:
             self.adj = from_networkx(hierarchy.to_undirected(as_view=True)).edge_index
             self.gcn = GCN(
-                in_channels=self.node_dim,
-                hidden_channels=self.node_dim,
+                in_channels=args.node_dim,
+                hidden_channels=args.node_dim,
                 num_layers=args.layers,
                 out_channels=1 if self.node_classification else None,
                 dropout=config.hidden_dropout_prob,
@@ -55,7 +53,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             self.classifier = XLMRobertaClassificationHead(config)
 
         if self.hierarchy and not self.node_classification:
-            self.out_proj = nn.Linear(config.num_labels * self.node_dim, config.num_labels)
+            self.out_proj = nn.Linear(config.num_labels * args.node_dim, config.num_labels)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -92,7 +90,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         if self.hierarchy:
             self.adj = self.adj.to(sequence_output.device)
             projected = self.dropout(self.projection(sequence_output[:, 0, :]))
-            projected = projected.view(projected.shape[0], self.config.num_labels, -1)
+            projected = projected.view(projected.shape[0], self.config.num_labels, -1)  # -1 == node_dim
 
             if self.hyperbolic:
                 convolved_hyp = self.hgcn.encode(projected, self.adj)
@@ -101,10 +99,10 @@ class HieRoberta(XLMRobertaPreTrainedModel):
                 convolved = self.gcn(projected, self.adj)
 
             if self.node_classification:
-                logits = convolved
+                logits = convolved.view(convolved.shape[0], -1)  # HGCN decoder returns [batch_size, n_classes, 1]
             else:
                 convolved = torch.relu(convolved)
-                convolved = convolved.view(convolved.shape[0], self.config.num_labels * self.node_dim)
+                convolved = convolved.view(convolved.shape[0], -1)
                 logits = self.out_proj(convolved)
         else:
             logits = self.classifier(sequence_output)
@@ -115,6 +113,10 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             # move labels to correct device to enable model parallelism
             labels = labels.to(logits.device)
             loss = self.loss_fct(logits, labels.float())
+
+            if self.hgcn.args.hyp_ireg != "0":  # if HIE
+                loss_hir = self.hgcn.hir_loss(convolved_hyp)
+                loss + self.hgcn.args.ireg_lambda * (max(loss_hir, -10) + 10)
 
         if not return_dict:
             output = (logits,) + outputs[2:]

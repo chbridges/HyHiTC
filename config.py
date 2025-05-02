@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", "-e", type=int, default=10)
     parser.add_argument("--freeze", "-f", action="store_true")
     parser.add_argument("--gnn", "-g", choices=["GCN", "HGCN", "HIE"])
-    parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"], default="full")
+    parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--hp_search", "-hp", action="store_true")
     parser.add_argument("--language_model", "-lm", default="classla/xlm-r-parla")
     parser.add_argument("--languages", "-lang", choices=LANGUAGE_SETS.keys(), default="european_latin")
@@ -34,7 +34,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train_data", "-train", default="semeval2021,semeval2023,semeval2024")
     parser.add_argument("--translations", "-mt", action="store_true")
     parser.add_argument("--val_size", "-v", type=float, default=0.2)
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if (args.gnn and not args.hierarchy) or (not args.gnn and args.hierarchy):
+        raise ValueError("--gnn and --hierarchy must either both be set or both None.")
+
+    return args
 
 
 def add_hyp_default_args(args: argparse.Namespace, config: XLMRobertaConfig) -> argparse.Namespace:
@@ -46,16 +51,16 @@ def add_hyp_default_args(args: argparse.Namespace, config: XLMRobertaConfig) -> 
     vars(args)["device"] = "cuda:0"
     vars(args)["dim"] = args.node_dim
     vars(args)["dropout"] = config.hidden_dropout_prob
-    vars(args)["feat_dim"] = config.hidden_size  # XLM-R output size
+    vars(args)["feat_dim"] = args.node_dim  # XLM-R output size
     vars(args)["local_agg"] = 1  # Chami et al.: local tangent space aggregation outperforms agg at origin
     vars(args)["hyp_ireg"] = "hir_tangent" if args.gnn == "HIE" else "0"  # Yang et al.: comparable with hire_tangent
     vars(args)["ireg_lambda"] = 0.1  # Yang et al. do not report their used value
     vars(args)["manifold"] = "PoincareBall"  # Nickel and Kiela: Hyperboloid more numerically stable than Poincaré
     vars(args)["model"] = args.gnn
-    vars(args)["n_classes"] = len(config.id2label)
-    vars(args)["num_layers"] = 1  # for comparison with HiAGM
+    vars(args)["n_classes"] = 1 if args.node_classification else args.node_dim  # binary multi-label classification
+    vars(args)["num_layers"] = 2
     vars(args)["n_heads"] = 1  # number of attention heads for graph attention networks, must be a divisor dim
     vars(args)["pos_weight"] = None  # mandatory argument of NCModel but not used
-    vars(args)["task"] = ("nc" if args.node_classification else "rec",)
-    vars(args)["use_att"] = 1  # Charmi et al.: attention leads to performance gain
+    vars(args)["task"] = "nc" if args.node_classification else "rec"  # not sure what rec means
+    vars(args)["use_att"] = 0  # Charmi et al.: attention leads to performance gain
     return args

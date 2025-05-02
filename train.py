@@ -126,14 +126,15 @@ if __name__ == "__main__":
     id2label = dict(enumerate(binarizer.classes_))
     label2id = {c: i for i, c in id2label.items()}
 
-    if args.debug:
-        dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
-
     config = XLMRobertaConfig.from_pretrained(args.language_model, id2label=id2label, label2id=label2id)
-    if args.gnn in ["HGCN", "HIE"]:
-        args = add_hyp_default_args(args, config)
     tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.language_model)
     data_collator = DataCollatorWithPadding(tokenizer)
+
+    if args.gnn in ["HGCN", "HIE"]:
+        args = add_hyp_default_args(args, config)
+
+    if args.debug:
+        dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
 
     for split in dataset.keys():
         dataset[split] = dataset[split].map(
@@ -161,6 +162,7 @@ if __name__ == "__main__":
         load_best_model_at_end=True,
         metric_for_best_model="macro_f1",
         greater_is_better=True,
+        save_safetensors=args.gnn not in ["HGCN", "HIE"],  # HGCN's shared tensors are not supported
     )
 
     trainer = RiemannianTrainer(
