@@ -16,8 +16,8 @@ LANGUAGE_SETS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", "-b", type=int, default=16)
-    parser.add_argument("--debug", "-d", action="store_true")
-    parser.add_argument("--epochs", "-e", type=int, default=10)
+    parser.add_argument("--debug", "-d", action="store_true", help="Drop 90% of data for faster training loop")
+    parser.add_argument("--epochs", "-e", type=int, default=50)
     parser.add_argument("--freeze", "-f", action="store_true", help="Freeze 50% of XLM-R layers.")
     parser.add_argument("--gnn", "-g", choices=["GCN", "HGCN", "HIE"])
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
@@ -33,7 +33,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", "-s", type=int, default=42)
     parser.add_argument("--test_data", "-test", default="slavicnlp2025")
     parser.add_argument("--train_data", "-train", default="semeval2021,semeval2023,semeval2024")
-    parser.add_argument("--val_data", "-val", default="slavicnlp2025")
     parser.add_argument("--val_size", "-vs", type=float, default=0.2)
     args = parser.parse_args()
 
@@ -57,7 +56,7 @@ def add_hyp_default_args(args: argparse.Namespace, config: XLMRobertaConfig) -> 
     vars(args)["hyp_ireg"] = "hir_tangent" if args.gnn == "HIE" else "0"  # Yang et al.: comparable with hire_tangent
     vars(args)["ireg_lambda"] = 0.1  # Yang et al. do not report their used value
     vars(args)["manifold"] = "PoincareBall"  # Nickel and Kiela: Hyperboloid more numerically stable than Poincaré
-    vars(args)["model"] = args.gnn
+    vars(args)["model"] = "HGCN"
     vars(args)["n_classes"] = 1 if args.node_classification else args.node_dim  # binary multi-label classification
     vars(args)["num_layers"] = 2
     vars(args)["n_heads"] = 1  # number of attention heads for graph attention networks, must be a divisor dim
