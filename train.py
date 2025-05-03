@@ -99,6 +99,8 @@ if __name__ == "__main__":
 
     if args.hierarchy:
         experiment_stem = f"{args.hierarchy}-{args.gnn}"
+        if args.node_classification:
+            experiment_stem = experiment_stem + "-nc"
     else:
         experiment_stem = "flat"
     experiment_name = f"{args.language_model}-{experiment_stem}-{args.languages}-{start_time.strftime('%m%d%H%M')}"
@@ -119,7 +121,6 @@ if __name__ == "__main__":
     dataset, binarizer = load_merge_encode(
         languages=LANGUAGE_SETS[args.languages],
         train_datasets=args.train_data,
-        val_datasets=args.val_data,
         test_datasets=args.test_data,
         hierarchy=hierarchy,
         machine_translations=args.machine_translations,
