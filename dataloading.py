@@ -333,9 +333,10 @@ def encode_labels(df: pd.DataFrame, labels: list | set = VALID_LABELS) -> tuple[
 def load_merge_encode(
         languages: list[str],
         train_datasets: str = "semeval2021,semeval2023,semeval2024",
+        val_datasets: str = "slavicnlp2025",
         test_datasets: str = "slavicnlp2025",
         hierarchy: Optional[nx.DiGraph] = None,
-        include_translations: bool = False,
+        machine_translations: bool = False,
         val_size: float = 0.2,
     ) -> tuple[DatasetDict, MultiLabelBinarizer]:
     dataset_funcs = {
@@ -367,7 +368,7 @@ def load_merge_encode(
     # Split dataset
     train_df, val_df = train_test_split(train_df, random_state=42, test_size=val_size)
 
-    if include_translations:
+    if machine_translations:
         t_path = Path("./data/translations")
         translations = pd.concat(
             [pd.read_parquet(t_path / f"{lang}.parquet") for lang in languages if (t_path / f"{lang}.parquet").exists()]

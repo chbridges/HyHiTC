@@ -119,8 +119,10 @@ if __name__ == "__main__":
     dataset, binarizer = load_merge_encode(
         languages=LANGUAGE_SETS[args.languages],
         train_datasets=args.train_data,
+        val_datasets=args.val_data,
+        test_datasets=args.test_data,
         hierarchy=hierarchy,
-        include_translations=args.translations,
+        machine_translations=args.machine_translations,
         val_size=args.val_size,
     )
     id2label = dict(enumerate(binarizer.classes_))
@@ -182,7 +184,7 @@ if __name__ == "__main__":
         for k, v in best_run.hyperparameters.items():
             setattr(trainer.args, k, v)
 
-    trainer.train()
+    # trainer.train()
 
     results = trainer.evaluate(dataset["test"], metric_key_prefix="test")
     print(results)
@@ -190,6 +192,10 @@ if __name__ == "__main__":
     test_logits = trainer.predict(dataset["test"]).predictions
     test_probas = torch.sigmoid(torch.Tensor(test_logits))
     test_preds = [np.where(row > 0.5)[0] for row in test_probas]
-    test_labels = [id2label[p] for p in test_preds[0]]
+    test_labels = [[id2label[p] for p in test_preds[i]] for i in range(len(test_preds))]
+
+    stats = np.sum(np.vstack(test_probas > 0.5), axis=0)
+    for i, l in id2label.items():
+        print(f"{l}: {stats[i]}")
 
     print("Total execution time:", datetime.now() - start_time)
