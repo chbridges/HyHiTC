@@ -114,7 +114,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             labels = labels.to(logits.device)
             loss = self.loss_fct(logits, labels.float())
 
-            if self.hgcn.args.hyp_ireg != "0":  # if HIE
+            if self.hyperbolic and self.hgcn.args.hyp_ireg != "0":  # if HIE
                 loss_hir = self.hgcn.hir_loss(convolved_hyp)
                 loss + self.hgcn.args.ireg_lambda * (max(loss_hir, -10) + 10)
 
