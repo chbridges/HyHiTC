@@ -398,13 +398,14 @@ if __name__ == "__main__":
 
     languages = ["bg", "en", "hr", "mk", "pl", "sl", "ru"]
 
-    dataset, _ = load_merge_encode(languages)
+    dataset, binarizer = load_merge_encode(languages, hierarchy=G)
+    print(binarizer.classes_)
     for split in dataset:
         df = pd.DataFrame(dataset[split])
         assert len(df[df.duplicated("id")]) == 0
-        print(df["text"])
+        print(df["labels"])
 
-    dataset, _ = load_merge_encode(languages, include_translations=True)
+    dataset, _ = load_merge_encode(languages, machine_translations=True)
     train_ids = dataset["train"]["id"]
     val_ids = dataset["val"]["id"]
     

@@ -1,3 +1,4 @@
+import argparse
 from typing import Optional
 
 import networkx as nx
@@ -5,7 +6,7 @@ import torch
 from torch import nn
 from torch_geometric.nn import GCN
 from torch_geometric.utils.convert import from_networkx
-from transformers import XLMRobertaModel, XLMRobertaPreTrainedModel
+from transformers import XLMRobertaConfig, XLMRobertaModel, XLMRobertaPreTrainedModel
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.xlm_roberta.modeling_xlm_roberta import XLMRobertaClassificationHead
 
@@ -15,33 +16,44 @@ from models.base_models import NCModel
 class HieRoberta(XLMRobertaPreTrainedModel):
     """Largely based on the official RobertaForSequenceClassification implementation."""
 
-    def __init__(self, args, config, hierarchy: Optional[nx.DiGraph] = None) -> None:
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        config: XLMRobertaConfig,
+        hierarchy: Optional[nx.DiGraph] = None,
+        pos_weight: Optional[torch.Tensor] = None,
+    ) -> None:
         super().__init__(config)
         self.config = config
-        self.loss_fct = nn.BCEWithLogitsLoss()
         self.hierarchy = hierarchy
         self.hyperbolic = bool(hierarchy) and args.gnn in ["HGCN", "HIE"]
         self.node_classification = args.node_classification
 
-        self.roberta = XLMRobertaModel(config, add_pooling_layer=args.pooling)
+        if args.mcloss:
+            self.loss_fct = nn.BCELoss()
+            self.R = torch.Tensor(nx.adjacency_matrix(hierarchy).todense().T)
+        else:
+            self.loss_fct = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+            self.R = None
 
-        # Freeze the first 50% of layers
-        if args.freeze:
-            modules = [self.roberta.embeddings, self.roberta.encoder.layer[: config.num_hidden_layers // 2]]
-            for module in modules:
-                for param in module.parameters():
-                    param.requires_grad = False
+        self.roberta = XLMRobertaModel(config, add_pooling_layer=args.pooling)
 
         # Insert GNN between LM and classification head
         self.projection = nn.Linear(config.hidden_size, config.num_labels * args.node_dim)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         if self.hyperbolic:
-            sparse_adj = nx.adjacency_matrix(hierarchy.to_undirected(as_view=True))
+            if args.directed:
+                sparse_adj = nx.adjacency_matrix(hierarchy)
+            else:
+                sparse_adj = nx.adjacency_matrix(hierarchy.to_undirected(as_view=True))
             self.adj = torch.Tensor(sparse_adj.todense())
             self.hgcn = NCModel(args)
         elif self.hierarchy:
-            self.adj = from_networkx(hierarchy.to_undirected(as_view=True)).edge_index
+            if args.directed:
+                self.adj = from_networkx(hierarchy).edge_index
+            else:
+                self.adj = from_networkx(hierarchy.to_undirected(as_view=True)).edge_index
             self.gcn = GCN(
                 in_channels=args.node_dim,
                 hidden_channels=args.node_dim,
@@ -107,12 +119,22 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         else:
             logits = self.classifier(sequence_output)
 
+        if self.R is not None:  # MCM
+            probas = logits.sigmoid()
+            if self.training:
+                probas = self.get_mcloss(probas, labels, self.R)
+            else:
+                probas = self.get_constr_out(probas, self.R)
+
         loss = None
 
         if labels is not None:
-            # move labels to correct device to enable model parallelism
             labels = labels.to(logits.device)
-            loss = self.loss_fct(logits, labels.float())
+            if self.R is not None:
+                with torch.autocast("cuda", enabled=False):
+                    loss = self.loss_fct(probas, labels.double())
+            else:
+                loss = self.loss_fct(logits, labels.double())
 
             if self.hyperbolic and self.hgcn.args.hyp_ireg != "0":  # if HIE
                 loss_hir = self.hgcn.hir_loss(convolved_hyp)
@@ -128,3 +150,36 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+    def get_constr_out(self, x: torch.Tensor, R: torch.Tensor):
+        """MCM implementation by Giunchiglia and Lukasiewicz: https://github.com/EGiunchiglia/C-HMCNN"""
+        c_out = x.double()
+        c_out = c_out.unsqueeze(1)
+        c_out = c_out.expand(len(x), R.shape[1], R.shape[1])
+        R_batch = R.expand(len(x), R.shape[1], R.shape[1]).to(x.device)
+        final_out, _ = torch.max(R_batch * c_out.double(), dim=2)
+        return final_out
+
+    def get_mcloss(self, output: torch.Tensor, labels: torch.Tensor, R: torch.Tensor):
+        """MCLoss implementation by Giunchiglia and Lukasiewicz: https://github.com/EGiunchiglia/C-HMCNN"""
+        constr_output = self.get_constr_out(output, R)
+        train_output = labels * output.double()
+        train_output = self.get_constr_out(train_output, R)
+        return (1 - labels) * constr_output.double() + labels * train_output
+
+    def freeze_lm(self, ratio: float):
+        if not ratio:
+            return
+        n_layers = int(ratio * len(self.roberta.encoder.layer))
+        for param in self.roberta.embeddings.parameters():
+            param.requires_grad = False
+        for module in self.roberta.encoder.layer[:n_layers]:
+            for param in module.parameters():
+                param.requires_grad = False
+
+    def unfreeze_lm(self):
+        for param in self.roberta.embeddings.parameters():
+            param.requires_grad = True
+        for module in self.roberta.encoder.layer:
+            for param in module.parameters():
+                param.requires_grad = True

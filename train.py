@@ -92,6 +92,10 @@ def make_multilabel_metrics(
     return compute_metrics
 
 
+def model_init():
+    return HieRoberta(args, config, hierarchy, pos_weight)
+
+
 if __name__ == "__main__":
     args = parse_args()
     set_seed(seed=args.seed)
@@ -103,7 +107,7 @@ if __name__ == "__main__":
             experiment_stem = experiment_stem + "-nc"
     else:
         experiment_stem = "flat"
-    experiment_name = f"{args.language_model}-{experiment_stem}-{args.languages}-{start_time.strftime('%m%d%H%M')}"
+    experiment_name = f"{args.language_model}-{args.languages}-{experiment_stem}-{start_time.strftime('%m%d%H%M')}"
 
     print(f"Experiment: {experiment_name}\n")
     for k, v in args.__dict__.items():
@@ -126,6 +130,14 @@ if __name__ == "__main__":
         machine_translations=args.machine_translations,
         val_size=args.val_size,
     )
+    if args.debug:
+        dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
+
+    # weights neg_freq/pos_freq for weighted binary cross-entropy
+    pos_frequencies = np.sum(dataset["train"]["labels"], axis=0)
+    pos_weight = torch.Tensor((len(dataset["train"]) - pos_frequencies) / pos_frequencies)
+    pos_weight[pos_weight == torch.inf] = 1.0
+
     id2label = dict(enumerate(binarizer.classes_))
     label2id = {c: i for i, c in id2label.items()}
 
@@ -136,27 +148,27 @@ if __name__ == "__main__":
     if args.gnn in ["HGCN", "HIE"]:
         args = add_hyp_default_args(args, config)
 
-    if args.debug:
-        dataset["train"] = dataset["train"].shard(num_shards=10, index=1)
+    if not args.hp_search:
+        model = model_init()
 
     for split in dataset.keys():
         dataset[split] = dataset[split].map(
-            lambda sample: tokenizer(sample["text"], padding=True, truncation=True, return_tensors="pt"),
+            lambda sample: tokenizer(sample["text"], padding=True, truncation=True),
             batched=True,
         )
 
     training_args = TrainingArguments(
         # general
         output_dir=experiment_name,
-        num_train_epochs=args.epochs,
+        num_train_epochs=args.finetune_epochs,
         fp16=True,
         seed=args.seed,
         eval_strategy="epoch",
         # optimizer
         weight_decay=0.01,
-        learning_rate=args.learning_rate,
+        learning_rate=args.finetune_lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=1 / args.epochs,  # first epoch
+        warmup_ratio=1 / args.finetune_epochs,  # first epoch
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         # saving
@@ -169,7 +181,8 @@ if __name__ == "__main__":
     )
 
     trainer = RiemannianTrainer(
-        model_init=lambda: HieRoberta(args, config, hierarchy),  # required for hyperparameter search
+        model=model if not args.hp_search else None,
+        model_init=model_init if args.hp_search else None,
         args=training_args,
         data_collator=data_collator,
         train_dataset=dataset["train"],
@@ -180,12 +193,24 @@ if __name__ == "__main__":
     )
 
     if args.hp_search:
-        best_run = trainer.hyperparameter_search(n_trials=10, direction="maximize")
+        best_run = trainer.hyperparameter_search(n_trials=5, direction="maximize")
         print(best_run)
-        for k, v in best_run.hyperparameters.items():
-            setattr(trainer.args, k, v)
+        exit()
 
-    # trainer.train()
+    if args.pretrain_epochs:
+        model.freeze_lm(ratio=1.0)
+        setattr(trainer.args, "learning_rate", args.pretrain_lr)
+        setattr(trainer.args, "num_train_epochs", args.pretrain_epochs)
+        setattr(trainer.args, "warmup_ratio", 1 / args.pretrain_epochs)
+        trainer.train()
+
+    if args.finetune_epochs:
+        model.unfreeze_lm()
+        model.freeze_lm(ratio=args.finetune_freeze)
+        setattr(trainer.args, "learning_rate", args.finetune_lr)
+        setattr(trainer.args, "num_train_epochs", args.finetune_epochs)
+        setattr(trainer.args, "warmup_ratio", 1 / args.finetune_epochs)
+        trainer.train()
 
     results = trainer.evaluate(dataset["test"], metric_key_prefix="test")
     print(results)
