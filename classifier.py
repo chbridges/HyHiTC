@@ -18,16 +18,18 @@ class HieRoberta(XLMRobertaPreTrainedModel):
 
     def __init__(
         self,
+        language_model: XLMRobertaModel,
         args: argparse.Namespace,
         config: XLMRobertaConfig,
         hierarchy: Optional[nx.DiGraph] = None,
         pos_weight: Optional[torch.Tensor] = None,
     ) -> None:
         super().__init__(config)
-        self.config = config
         self.hierarchy = hierarchy
         self.hyperbolic = bool(hierarchy) and args.gnn in ["HGCN", "HIE"]
         self.node_classification = args.node_classification
+        self.num_labels = config.num_labels
+        self.return_dict = config.return_dict
 
         if args.mcloss:
             self.loss_fct = nn.BCELoss()
@@ -36,10 +38,10 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             self.loss_fct = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
             self.R = None
 
-        self.roberta = XLMRobertaModel.from_pretrained(args.language_model, config=config)
+        self.roberta = language_model
 
         # Insert GNN between LM and classification head
-        self.projection = nn.Linear(config.hidden_size, config.num_labels * args.node_dim)
+        self.projection = nn.Linear(config.hidden_size, self.num_labels * args.node_dim)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         if self.hyperbolic:
@@ -65,7 +67,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             self.classifier = XLMRobertaClassificationHead(config)
 
         if self.hierarchy and not self.node_classification:
-            self.out_proj = nn.Linear(config.num_labels * args.node_dim, config.num_labels)
+            self.out_proj = nn.Linear(self.num_labels * args.node_dim, self.num_labels)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -83,7 +85,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> tuple[torch.Tensor] | SequenceClassifierOutput:
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = return_dict if return_dict is not None else self.use_return_dict
 
         outputs = self.roberta(
             input_ids,
@@ -102,7 +104,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         if self.hierarchy:
             self.adj = self.adj.to(sequence_output.device)
             projected = self.dropout(self.projection(sequence_output[:, 0, :]))
-            projected = projected.view(projected.shape[0], self.config.num_labels, -1)  # -1 == node_dim
+            projected = projected.view(projected.shape[0], self.num_labels, -1)  # -1 == node_dim
 
             if self.hyperbolic:
                 convolved_hyp = self.hgcn.encode(projected, self.adj)

@@ -13,6 +13,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
     XLMRobertaConfig,
+    XLMRobertaModel,
     XLMRobertaTokenizerFast,
     set_seed,
 )
@@ -93,7 +94,8 @@ def make_multilabel_metrics(
 
 
 def model_init():
-    return HieRoberta(args, config, hierarchy, pos_weight)
+    language_model = XLMRobertaModel.from_pretrained(args.language_model, config=config)
+    return HieRoberta(language_model, args, config, hierarchy, pos_weight)
 
 
 if __name__ == "__main__":
@@ -149,7 +151,7 @@ if __name__ == "__main__":
         args = add_hyp_default_args(args, config)
 
     if not args.hp_search:
-        model = model_init()
+        language_model = model_init()
 
     for split in dataset.keys():
         dataset[split] = dataset[split].map(
@@ -182,7 +184,7 @@ if __name__ == "__main__":
     )
 
     trainer = RiemannianTrainer(
-        model=model if not args.hp_search else None,
+        model=language_model if not args.hp_search else None,
         model_init=model_init if args.hp_search else None,
         args=training_args,
         data_collator=data_collator,
