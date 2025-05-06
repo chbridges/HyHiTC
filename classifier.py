@@ -36,7 +36,7 @@ class HieRoberta(XLMRobertaPreTrainedModel):
             self.loss_fct = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
             self.R = None
 
-        self.roberta = XLMRobertaModel(config, add_pooling_layer=args.pooling)
+        self.roberta = XLMRobertaModel.from_pretrained(args.language_model, config=config)
 
         # Insert GNN between LM and classification head
         self.projection = nn.Linear(config.hidden_size, config.num_labels * args.node_dim)

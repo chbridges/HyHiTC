@@ -377,7 +377,7 @@ def load_merge_encode(
         filtered = filtered[~filtered["id"].isin(val_df["id"])].copy()
         filtered["labels"] = filtered["labels"].apply(lambda l: binarizer.transform([l])[0])
         if len(filtered):
-            train_df = pd.concat([train_df, filtered]).sample(frac=1, random_state=42)
+            train_df = pd.concat([train_df, filtered]).sample(frac=1, random_state=42)  # shuffle
 
     dataset = DatasetDict(
         {

@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
     for split in dataset.keys():
         dataset[split] = dataset[split].map(
-            lambda sample: tokenizer(sample["text"], padding=True, truncation=True),
+            lambda sample: tokenizer(sample["text"], padding=True, truncation=True, return_tensor="pt"),
             batched=True,
         )
 
@@ -164,6 +164,7 @@ if __name__ == "__main__":
         fp16=True,
         seed=args.seed,
         eval_strategy="epoch",
+        dataloader_num_workers=4,
         # optimizer
         weight_decay=0.01,
         learning_rate=args.finetune_lr,
