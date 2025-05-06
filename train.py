@@ -18,7 +18,7 @@ from transformers import (
     set_seed,
 )
 
-from classifier import HieRoberta
+from classifier import HieRobertaConfig, HieRobertaModel
 from config import LANGUAGE_SETS, add_hyp_default_args, parse_args
 from dataloading import load_merge_encode
 from hierarchy import create_full_hierarchy, create_taxonomy
@@ -95,7 +95,7 @@ def make_multilabel_metrics(
 
 def model_init():
     language_model = XLMRobertaModel.from_pretrained(args.language_model, config=config)
-    return HieRoberta(language_model, args, config, hierarchy, pos_weight)
+    return HieRobertaModel(language_model, args, config, hierarchy, pos_weight)
 
 
 if __name__ == "__main__":
@@ -151,7 +151,7 @@ if __name__ == "__main__":
         args = add_hyp_default_args(args, config)
 
     if not args.hp_search:
-        language_model = model_init()
+        model = model_init()
 
     for split in dataset.keys():
         dataset[split] = dataset[split].map(
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     )
 
     trainer = RiemannianTrainer(
-        model=language_model if not args.hp_search else None,
+        model=model if not args.hp_search else None,
         model_init=model_init if args.hp_search else None,
         args=training_args,
         data_collator=data_collator,
