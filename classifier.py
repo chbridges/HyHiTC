@@ -13,7 +13,11 @@ from transformers.models.xlm_roberta.modeling_xlm_roberta import XLMRobertaClass
 from models.base_models import NCModel
 
 
-class HieRoberta(XLMRobertaPreTrainedModel):
+class HieRobertaConfig(XLMRobertaConfig):
+    model_type = "HieRoberta"
+
+
+class HieRobertaModel(XLMRobertaPreTrainedModel):
     """Largely based on the official RobertaForSequenceClassification implementation."""
 
     def __init__(
@@ -26,10 +30,10 @@ class HieRoberta(XLMRobertaPreTrainedModel):
     ) -> None:
         super().__init__(config)
         self.hierarchy = hierarchy
-        self.hyperbolic = bool(hierarchy) and args.gnn in ["HGCN", "HIE"]
+        self.hyperbolic = hierarchy is not None and args.gnn in ["HGCN", "HIE"]
         self.node_classification = args.node_classification
         self.num_labels = config.num_labels
-        self.return_dict = config.return_dict
+        self.use_return_dict = config.use_return_dict
 
         if args.mcloss:
             self.loss_fct = nn.BCELoss()
@@ -104,13 +108,13 @@ class HieRoberta(XLMRobertaPreTrainedModel):
         if self.hierarchy:
             self.adj = self.adj.to(sequence_output.device)
             projected = self.dropout(self.projection(sequence_output[:, 0, :]))
-            projected = projected.view(projected.shape[0], self.num_labels, -1)  # -1 == node_dim
+            node_features = projected.view(projected.shape[0], self.num_labels, -1)  # -1 == node_dim
 
             if self.hyperbolic:
-                convolved_hyp = self.hgcn.encode(projected, self.adj)
+                convolved_hyp = self.hgcn.encode(node_features, self.adj)
                 convolved = self.hgcn.decoder.decode(convolved_hyp, self.adj)
             else:
-                convolved = self.gcn(projected, self.adj)
+                convolved = self.gcn(node_features, self.adj)
 
             if self.node_classification:
                 logits = convolved.view(convolved.shape[0], -1)  # HGCN decoder returns [batch_size, n_classes, 1]
