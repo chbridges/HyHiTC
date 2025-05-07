@@ -1,3 +1,5 @@
+Some general info about the datasets put into this directory. Some languages codes were manually fixed, e.g., SI -> SL and GE -> DE.
+
 ./semeval-2021-task-6
 SemEval 2021 Task 6: Detection of Persuasion Techniques in Texts and Images
 Subtask 1 - Given only the “textual content” of a meme, identify which of the 20 techniques are used in it. This is a multilabel classification problem.
