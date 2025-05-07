@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import networkx as nx
@@ -12,7 +13,6 @@ from transformers import (
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
-    XLMRobertaConfig,
     XLMRobertaModel,
     XLMRobertaTokenizerFast,
     set_seed,
@@ -94,14 +94,80 @@ def make_multilabel_metrics(
 
 
 def model_init():
-    language_model = XLMRobertaModel.from_pretrained(args.language_model, config=config)
+    """Required for hyperparameter search."""
+    language_model = XLMRobertaModel.from_pretrained(args.language_model, add_pooling_layer=args.pooling, config=config)
     return HieRobertaModel(language_model, args, config, hierarchy, pos_weight)
 
 
+def predict_test_labels(
+    model: HieRobertaModel,
+    tokenizer: XLMRobertaTokenizerFast,
+    identifier: str,
+    test_dir: Path = Path("./data/test_data/"),
+):
+    for lang in ["BG", "HR", "PL", "RU", "SL"]:
+        lang_dir = test_dir / lang
+        input_file = lang_dir / "input-file.txt"
+        docs_dir = lang_dir / "raw-documents"
+        output_dir = lang_dir / f"predictions-{identifier}"
+
+        if not lang_dir.exists():
+            continue  # should only happen for HR when debugging on training data
+
+        output_dir.mkdir(exist_ok=True)
+
+        subtask1_option1 = []
+        subtask1_option2 = []
+        subtask2 = []
+
+        with input_file.open("r", encoding="utf-8") as file:
+            lines = file.readlines()
+
+        current_doc = ""
+        current_content = ""
+        for line in lines:
+            doc, start, end = line.split("\t")
+            if doc != current_doc:
+                current_doc = doc
+                with (docs_dir / doc).open("r", encoding="utf-8") as file:
+                    current_content = file.read()
+
+            inputs = tokenizer(
+                current_content[int(start) : int(end)], padding=True, truncation=True, return_tensors="pt"
+            ).to(model.device)
+            with torch.no_grad():
+                logits = model(**inputs).logits
+            probas = torch.sigmoid(torch.Tensor(logits)).cpu()
+            preds = np.where(probas > 0.5)[0]
+            all_labels = [id2label[p] for p in preds]
+            subtask2_labels = "\t".join([l for l in all_labels])  # if l in VALID_LABELS])
+            # OPTION 1: Check if any valid label was predicted
+            subtask1_label_1 = "true" if subtask2_labels else "false"
+            # OPTION 2: Check if Persuasion was predicted (hierarchical only)
+            subtask1_label_2 = "true" if "Persuasion" in all_labels else "false"
+
+            subtask1_option1.append(f"{line.strip()}\t{subtask1_label_1}")
+            subtask1_option2.append(f"{line.strip()}\t{subtask1_label_2}")
+            subtask2.append(f"{line.strip()}\t{subtask2_labels}")
+
+            with (output_dir / "subtask1_option1.csv").open("w", encoding="utf-8") as file:
+                file.write("\n".join(subtask1_option1))
+
+            with (output_dir / "subtask1_option2.csv").open("w", encoding="utf-8") as file:
+                file.write("\n".join(subtask1_option2))
+
+            with (output_dir / "subtask2.csv").open("w", encoding="utf-8") as file:
+                file.write("\n".join(subtask2))
+
+
 if __name__ == "__main__":
+    if not torch.cuda.is_available():
+        raise RuntimeError("No CUDA")
+
     args = parse_args()
     set_seed(seed=args.seed)
     start_time = datetime.now()
+    timestamp = start_time.strftime("%m%d%H%M")
 
     if args.hierarchy:
         experiment_stem = f"{args.hierarchy}-{args.gnn}"
@@ -109,7 +175,7 @@ if __name__ == "__main__":
             experiment_stem = experiment_stem + "-nc"
     else:
         experiment_stem = "flat"
-    experiment_name = f"{args.language_model}-{args.languages}-{experiment_stem}-{start_time.strftime('%m%d%H%M')}"
+    experiment_name = f"{args.language_model}-{args.languages}-{experiment_stem}-{timestamp}"
 
     print(f"Experiment: {experiment_name}\n")
     for k, v in args.__dict__.items():
@@ -143,7 +209,7 @@ if __name__ == "__main__":
     id2label = dict(enumerate(binarizer.classes_))
     label2id = {c: i for i, c in id2label.items()}
 
-    config = XLMRobertaConfig.from_pretrained(args.language_model, id2label=id2label, label2id=label2id)
+    config = HieRobertaConfig.from_pretrained(args.language_model, id2label=id2label, label2id=label2id)
     tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.language_model)
     data_collator = DataCollatorWithPadding(tokenizer)
 
@@ -155,7 +221,7 @@ if __name__ == "__main__":
 
     for split in dataset.keys():
         dataset[split] = dataset[split].map(
-            lambda sample: tokenizer(sample["text"], padding=True, truncation=True, return_tensor="pt"),
+            lambda sample: tokenizer(sample["text"], padding=True, truncation=True, return_tensors="pt"),
             batched=True,
         )
 
@@ -166,7 +232,7 @@ if __name__ == "__main__":
         fp16=True,
         seed=args.seed,
         eval_strategy="epoch",
-        dataloader_num_workers=4,
+        dataloader_num_workers=2,
         # optimizer
         weight_decay=0.01,
         learning_rate=args.finetune_lr,
@@ -174,6 +240,7 @@ if __name__ == "__main__":
         warmup_ratio=1 / args.finetune_epochs,  # first epoch
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        max_grad_norm=3.0,
         # saving
         save_strategy="epoch",
         save_total_limit=1,
@@ -217,6 +284,8 @@ if __name__ == "__main__":
 
     results = trainer.evaluate(dataset["test"], metric_key_prefix="test")
     print(results)
+    if args.gnn in ["HGCN", "HIE"]:
+        print("Learned embedding space curvature:", model.hgcn.get_c())
 
     test_logits = trainer.predict(dataset["test"]).predictions
     test_probas = torch.sigmoid(torch.Tensor(test_logits))
@@ -228,3 +297,6 @@ if __name__ == "__main__":
         print(f"{l}: {stats[i]}")
 
     print("Total execution time:", datetime.now() - start_time)
+
+    predict_test_labels(trainer.model, tokenizer, timestamp, Path("./data/TRAIN_version_31_March_2025/"))
+    predict_test_labels(trainer.model, tokenizer, timestamp, Path("./data/test_data/"))
