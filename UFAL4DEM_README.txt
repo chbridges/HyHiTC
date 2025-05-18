@@ -1,0 +1,5 @@
+UFAL4DEM
+Institute of Formal and Applied Linguistics, Faculty of Mathematics and Physics, Charles University
+bruckner@ufal.mff.cuni.cz
+
+Reusing and extending the hierarchy of persuasion techniques from SemEval 2024 Task 4, node features are extracted from XLM-R-parla embeddings to embed the label hierarchy in hyperbolic space. The multi-label classification task is then solved as a node classification problem by replacing the linear output layer with graph convolutions, while a second loss function improves the graph embeddings by aligning the root node with the center and stretching the remaining nodes across the bounded space. The training data includes labeled data in all ParlaMint languages from the previous related SemEval tasks and is augmented with machine translations into the five test data languages, Macedonian, and English. The outputs of the same multilingual model are used for both subtasks.
