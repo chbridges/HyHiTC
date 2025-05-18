@@ -14,7 +14,7 @@ from dataloading import (
     load_semeval_2024_task_4_subtask_1,
     load_slavicnlp_2025,
 )
-from train import LANGUAGE_SETS
+from config import LANGUAGE_SETS
 
 logging.getLogger().setLevel(logging.INFO)
 set_seed(42)
