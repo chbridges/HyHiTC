@@ -26,7 +26,12 @@ using the full extended SemEval 2024 hierarchy, and applying hierarchical strech
 ```
 python3 train.py --machine_translations --node_classification --hierarchy full --gnn HIE --hie_lambda 1 --node_dim 256
 ```
-For additional parameters, refer to ```config.py```.
+
+To generate the machine translations of the SemEval 2021-2024 datasets in Slavic languages only, run the following command:
+```
+python3 translate.py --tgt_langs slavic
+```
+For additional parameters and language sets, refer to [config.py](https://github.com/chbridges/HyHiTC/blob/main/config.py).
 
 ## Troubleshooting
 
