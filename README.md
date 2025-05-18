@@ -33,25 +33,23 @@ For additional parameters, refer to ```config.py```.
 If you get an error related to an undefined symbol in torch-scatter, find your installed PyTorch version
 [here](https://pytorch-geometric.com/whl/index.html) and install the packages via
 ```
-pip3 install -f <url>
+pip3 install -f https://pytorch-geometric.com/whl/torch-<version>.html
 ```
 
 ## Preliminary BibTeX
 
 ```
 @inproceedings{ufal4demSlavicNLP2025task,
-	title={Hierarchical Classification of Propaganda
-Techniques in Slavic Texts in Hyperbolic Space},
-	author={Br{\"u}ckner, Christopher  and  Pecina, Pavel},
-            booktitle = {Proceedings of the 10th Workshop on Slavic Natural Language Processing 2025 (SlavicNLP 2025)},
-           editor = {Piskorski, Jakub and Ljube\v{s}i{'c}, Nikola and Marci{'n}czuk, Micha{\l} and      Nakov, Preslav and P{\v{r}}ib{'a}{\v{n}}, Pavel and Yangarber, Roman},
-month = {July},
-   	year = {2025},
-    	address = {Vienna, Austria},
-    	publisher = {Association for Computational Linguistics}          
+    title={Hierarchical Classification of Propaganda Techniques in Slavic Texts in Hyperbolic Space},
+    author={Br{\"u}ckner, Christopher  and  Pecina, Pavel},
+    booktitle = {Proceedings of the 10th Workshop on Slavic Natural Language Processing 2025 (SlavicNLP 2025)},
+    editor = {Piskorski, Jakub and Ljube\v{s}i{'c}, Nikola and Marci{'n}czuk, Micha{\l} and      Nakov, Preslav and P{\v{r}}ib{'a}{\v{n}}, Pavel and Yangarber, Roman},
+    month = {July},
+    year = {2025},
+    address = {Vienna, Austria},
+    publisher = {Association for Computational Linguistics}          
 }
 ```
-
 
 ## Acknowledgments
 
