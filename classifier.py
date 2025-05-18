@@ -35,12 +35,11 @@ class HieRobertaModel(XLMRobertaPreTrainedModel):
         self.num_labels = config.num_labels
         self.use_return_dict = config.use_return_dict
 
+        self.R = torch.Tensor(nx.adjacency_matrix(hierarchy).todense().T) if args.mcm else None
         if args.mcloss:
             self.loss_fct = nn.BCELoss()
-            self.R = torch.Tensor(nx.adjacency_matrix(hierarchy).todense().T)
         else:
             self.loss_fct = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-            self.R = None
 
         self.roberta = language_model
 

@@ -13,12 +13,13 @@ from transformers import (
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
+    XLMRobertaConfig,
     XLMRobertaModel,
     XLMRobertaTokenizerFast,
     set_seed,
 )
 
-from classifier import HieRobertaConfig, HieRobertaModel
+from classifier import HieRobertaModel
 from config import LANGUAGE_SETS, add_hyp_default_args, parse_args
 from dataloading import load_merge_encode
 from hierarchy import create_full_hierarchy, create_taxonomy
@@ -104,16 +105,20 @@ def predict_test_labels(
     tokenizer: XLMRobertaTokenizerFast,
     identifier: str,
     test_dir: Path = Path("./data/test_data/"),
+    mcm: bool = False,
 ):
+    preds_dir = test_dir / f"predictions-{identifier}"
+
     for lang in ["BG", "HR", "PL", "RU", "SL"]:
         lang_dir = test_dir / lang
         input_file = lang_dir / "input-file.txt"
         docs_dir = lang_dir / "raw-documents"
-        output_dir = lang_dir / f"predictions-{identifier}"
+        output_dir = preds_dir / lang
 
         if not lang_dir.exists():
             continue  # should only happen for HR when debugging on training data
 
+        preds_dir.mkdir(exist_ok=True)
         output_dir.mkdir(exist_ok=True)
 
         subtask1_option1 = []
@@ -136,11 +141,14 @@ def predict_test_labels(
                 current_content[int(start) : int(end)], padding=True, truncation=True, return_tensors="pt"
             ).to(model.device)
             with torch.no_grad():
-                logits = model(**inputs).logits
+                logits = model(**inputs).logits[0]
             probas = torch.sigmoid(torch.Tensor(logits)).cpu()
+            if mcm:
+                probas = model.get_constr_out(probas, model.R)
             preds = np.where(probas > 0.5)[0]
             all_labels = [id2label[p] for p in preds]
-            subtask2_labels = "\t".join([l for l in all_labels])  # if l in VALID_LABELS])
+
+            subtask2_labels = "\t".join([l for l in all_labels if l in VALID_LABELS])
             # OPTION 1: Check if any valid label was predicted
             subtask1_label_1 = "true" if subtask2_labels else "false"
             # OPTION 2: Check if Persuasion was predicted (hierarchical only)
@@ -209,7 +217,7 @@ if __name__ == "__main__":
     id2label = dict(enumerate(binarizer.classes_))
     label2id = {c: i for i, c in id2label.items()}
 
-    config = HieRobertaConfig.from_pretrained(args.language_model, id2label=id2label, label2id=label2id)
+    config = XLMRobertaConfig.from_pretrained(args.language_model, id2label=id2label, label2id=label2id)
     tokenizer = XLMRobertaTokenizerFast.from_pretrained(args.language_model)
     data_collator = DataCollatorWithPadding(tokenizer)
 
@@ -298,5 +306,5 @@ if __name__ == "__main__":
 
     print("Total execution time:", datetime.now() - start_time)
 
-    predict_test_labels(trainer.model, tokenizer, timestamp, Path("./data/TRAIN_version_31_March_2025/"))
-    predict_test_labels(trainer.model, tokenizer, timestamp, Path("./data/test_data/"))
+    predict_test_labels(trainer.model, tokenizer, timestamp, Path("./data/TRAIN_version_31_March_2025/"), mcm=args.mcm)
+    predict_test_labels(trainer.model, tokenizer, timestamp, Path("./data/test_data/"), mcm=args.mcm)

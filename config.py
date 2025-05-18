@@ -22,13 +22,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--finetune_freeze", "-ff", type=float, default=0.5, help="Freeze 50-100% of XLM-R layers.")
     parser.add_argument("--finetune_lr", "-flr", type=float, default=1e-5)
     parser.add_argument("--gnn", "-g", choices=["GCN", "HGCN", "HIE"])
-    parser.add_argument("--hie_lambda", "-la", type=float, default=1.0)
+    parser.add_argument("--hie_lambda", "-hl", type=float, default=0.1)
     parser.add_argument("--hierarchy", "-hi", choices=["full", "taxonomy"])
     parser.add_argument("--hp_search", "-hp", action="store_true")
     parser.add_argument("--language_model", "-lm", default="classla/xlm-r-parla")
-    parser.add_argument("--languages", "-lang", choices=LANGUAGE_SETS.keys(), default="european_latin")
+    parser.add_argument("--languages", "-lang", choices=LANGUAGE_SETS.keys(), default="parlamint")
     parser.add_argument("--layers", "-l", type=int, default=3, help="Number of hidden graph convolutional layers.")
-    parser.add_argument("--mcloss", "-mc", action="store_true", help="Use MCLoss (Giunchiglia and Lukasiewicz).")
+    parser.add_argument("--mcloss", "-mcl", action="store_true", help="Use MCLoss (Giunchiglia and Lukasiewicz).")
+    parser.add_argument("--mcm", action="store_true", help="Use MCM (Giunchiglia and Lukasiewicz).")
     parser.add_argument("--pretrain_epochs", "-pe", type=int, default=0)  # GCN pretraining
     parser.add_argument("--pretrain_lr", "-plr", type=float, default=1e-5)
     parser.add_argument("--machine_translations", "-mt", action="store_true", help="Augment training data.")
@@ -37,8 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pooling", "-p", action="store_true", help="Append pooling layer to XLM-R.")
     parser.add_argument("--seed", "-s", type=int, default=42)
     parser.add_argument("--test_data", "-test", default="slavicnlp2025")
-    parser.add_argument("--train_data", "-train", default="semeval2021,semeval2023,semeval2024,clef2024")
-    parser.add_argument("--val_size", "-vs", type=float, default=0.2)
+    parser.add_argument("--train_data", "-train", default="semeval2021,semeval2023,semeval2024")
+    parser.add_argument("--val_size", "-vs", type=float, default=0.1)
     args = parser.parse_args()
 
     if args.gnn and not args.hierarchy:
