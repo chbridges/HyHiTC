@@ -30,12 +30,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--layers", "-l", type=int, default=3, help="Number of hidden graph convolutional layers.")
     parser.add_argument("--mcloss", "-mcl", action="store_true", help="Use MCLoss (Giunchiglia and Lukasiewicz).")
     parser.add_argument("--mcm", action="store_true", help="Use MCM (Giunchiglia and Lukasiewicz).")
-    parser.add_argument("--pretrain_epochs", "-pe", type=int, default=0)  # GCN pretraining
-    parser.add_argument("--pretrain_lr", "-plr", type=float, default=1e-5)
     parser.add_argument("--machine_translations", "-mt", action="store_true", help="Augment training data.")
     parser.add_argument("--node_classification", "-nc", action="store_true", help="Skip linear combination of nodes.")
     parser.add_argument("--node_dim", "-nd", type=int, default=512)
     parser.add_argument("--pooling", "-p", action="store_true", help="Append pooling layer to XLM-R.")
+    parser.add_argument("--pretrain_epochs", "-pe", type=int, default=0)  # GCN pretraining
+    parser.add_argument("--pretrain_lr", "-plr", type=float, default=1e-5)
     parser.add_argument("--seed", "-s", type=int, default=42)
     parser.add_argument("--test_data", "-test", default="slavicnlp2025")
     parser.add_argument("--train_data", "-train", default="semeval2021,semeval2023,semeval2024")
